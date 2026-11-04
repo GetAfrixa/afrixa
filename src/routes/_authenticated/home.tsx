@@ -15,7 +15,7 @@ import {
 } from "@phosphor-icons/react";
 import { useEffect, useState, type ComponentType } from "react";
 
-import logoImg from "@/assets/afrixa-logo.png";
+import logoImg from "@/assets/afrixa-wordmark.png";
 import opportunityBanner from "@/assets/home-opportunity-banner.jpg";
 import networkBanner from "@/assets/home-network-banner.jpg";
 import walletBanner from "@/assets/home-wallet-banner.jpg";
@@ -35,8 +35,7 @@ export const Route = createFileRoute("/_authenticated/home")({
       { title: "Your Afrixa feed — matched opportunities" },
       {
         name: "description",
-        content:
-          "See jobs, gigs and freelance projects matched to your skills.",
+        content: "See jobs, gigs and freelance projects matched to your skills.",
       },
       { property: "og:title", content: "Your Afrixa feed" },
       {
@@ -52,7 +51,17 @@ export const Route = createFileRoute("/_authenticated/home")({
 
 type QuickLink = {
   label: string;
-  to: "/explore" | "/applications" | "/talent" | "/assessment" | "/companies" | "/feed" | "/proposals" | "/gigs" | "/contracts" | "/wallet";
+  to:
+    | "/explore"
+    | "/applications"
+    | "/talent"
+    | "/assessment"
+    | "/companies"
+    | "/feed"
+    | "/proposals"
+    | "/gigs"
+    | "/contracts"
+    | "/wallet";
   Icon: ComponentType<{ size?: number; weight?: "regular" | "fill" | "bold" }>;
 };
 
@@ -130,7 +139,6 @@ function HomePage() {
     queryFn: () => fetchFeed(user?.id),
   });
 
-
   const featured = opportunities.filter((item) => item.status === "open").slice(0, 5);
   const firstName = profile?.full_name?.trim().split(/\s+/)[0] ?? "there";
   const quickLinks = isClient ? CLIENT_LINKS : TALENT_LINKS;
@@ -139,9 +147,17 @@ function HomePage() {
 
   return (
     <AppShell className="bg-card">
-      <header className="px-5 pb-3 pt-5">
+      <header className="px-5 pb-3 pt-5 md:px-8 md:pt-8">
         <div className="flex items-center justify-between gap-4">
-          <img src={logoImg} alt="Afrixa" width={1020} height={539} className="h-14 w-auto object-contain" />
+          <span className="inline-flex rounded-xl bg-white px-2 py-1 shadow-sm">
+            <img
+              src={logoImg}
+              alt="Afrixa"
+              width={430}
+              height={143}
+              className="h-12 w-auto object-contain"
+            />
+          </span>
           <div className="flex items-center gap-2">
             <NotificationBell tone="light" />
             <Link
@@ -158,7 +174,7 @@ function HomePage() {
         </p>
       </header>
 
-      <main className="space-y-8 px-5 pb-3">
+      <main className="space-y-8 px-5 pb-3 md:space-y-10 md:px-8 md:pb-8">
         <section>
           <p className="text-sm font-semibold text-secondary">{greeting()},</p>
           <h1 className="text-2xl font-bold text-primary">{firstName} 👋</h1>
@@ -173,7 +189,7 @@ function HomePage() {
             </Link>
           ) : null}
 
-          <div className="relative mt-5 h-48 overflow-hidden rounded-3xl bg-primary shadow-lift">
+          <div className="relative mt-5 h-48 overflow-hidden rounded-3xl bg-primary shadow-lift md:h-64">
             <img
               key={activePromotion.image}
               src={activePromotion.image}
@@ -183,11 +199,13 @@ function HomePage() {
               className="absolute inset-0 size-full object-cover motion-safe:animate-in motion-safe:fade-in motion-safe:duration-500"
             />
             <div className="absolute inset-0 bg-gradient-to-r from-primary via-primary/90 to-transparent" />
-            <div className="relative flex h-full max-w-[72%] flex-col items-start justify-center p-5 text-primary-foreground">
+            <div className="relative flex h-full max-w-[72%] flex-col items-start justify-center p-5 text-primary-foreground md:max-w-[55%] md:p-8">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-gold">
                 {activePromotion.eyebrow}
               </p>
-              <h2 className="mt-1 text-2xl font-bold leading-tight">{activePromotion.title}</h2>
+              <h2 className="mt-1 text-2xl font-bold leading-tight md:text-3xl">
+                {activePromotion.title}
+              </h2>
               <p className="mt-2 text-xs leading-relaxed text-primary-foreground/75">
                 {activePromotion.copy}
               </p>
@@ -195,7 +213,9 @@ function HomePage() {
                 to={isClient && activePromotion.to === "/explore" ? "/talent" : activePromotion.to}
                 className="mt-4 inline-flex h-9 items-center gap-2 rounded-full bg-secondary px-4 text-xs font-bold text-secondary-foreground"
               >
-                {isClient && activePromotion.to === "/explore" ? "Find talent" : activePromotion.action}
+                {isClient && activePromotion.to === "/explore"
+                  ? "Find talent"
+                  : activePromotion.action}
                 <ArrowRight size={14} weight="bold" />
               </Link>
             </div>
@@ -213,9 +233,16 @@ function HomePage() {
           </div>
         </section>
 
-        <nav aria-label="Quick links" className="grid grid-cols-3 gap-x-3 gap-y-5">
+        <nav
+          aria-label="Quick links"
+          className="grid grid-cols-3 gap-x-3 gap-y-5 md:grid-cols-6 md:gap-5"
+        >
           {quickLinks.map(({ label, to, Icon }) => (
-            <Link key={label} to={to} className="group flex min-w-0 flex-col items-center gap-2 text-center">
+            <Link
+              key={label}
+              to={to}
+              className="group flex min-w-0 flex-col items-center gap-2 text-center"
+            >
               <span className="flex size-14 items-center justify-center rounded-2xl border border-border bg-muted text-primary shadow-card transition-transform group-hover:-translate-y-0.5">
                 <Icon size={25} weight="bold" />
               </span>
@@ -224,90 +251,112 @@ function HomePage() {
           ))}
         </nav>
 
-        {!isClient ? (
-          <section>
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-lg font-bold text-primary">Featured opportunities</h2>
-              <Link to="/explore" className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-secondary">
-                See all <ArrowRight size={13} />
-              </Link>
-            </div>
-            <div className="no-scrollbar -mx-5 mt-3 flex snap-x gap-3 overflow-x-auto px-5 pb-3">
-              {isLoading ? (
-                <p className="text-sm text-muted-foreground">Loading opportunities…</p>
-              ) : featured.length ? (
-                featured.map((item) => (
-                  <div key={item.id} className="w-[82%] shrink-0 snap-start sm:w-[70%]">
-                    <OpportunityCard opportunity={item} />
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">New opportunities are on the way.</p>
-              )}
-            </div>
-          </section>
-        ) : (
-          <section>
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-lg font-bold text-primary">Your hiring workspace</h2>
-              <Link to="/proposals" className="inline-flex items-center gap-1 text-xs font-bold text-secondary">
-                Open <ArrowRight size={13} />
-              </Link>
-            </div>
-            <div className="mt-3 grid grid-cols-2 gap-3">
-              <Link to="/proposals" className="rounded-2xl border border-border bg-muted p-4">
-                <FileText size={22} className="text-secondary" />
-                <p className="mt-3 text-sm font-bold">Review proposals</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Compare applicants and hire.</p>
-              </Link>
-              <Link to="/contracts" className="rounded-2xl border border-border bg-muted p-4">
-                <ShieldCheck size={22} className="text-secondary" />
-                <p className="mt-3 text-sm font-bold">Fund milestones</p>
-                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Approve and release work.</p>
-              </Link>
-            </div>
-          </section>
-        )}
+        <div className="space-y-8 md:grid md:grid-cols-2 md:items-start md:gap-8 md:space-y-0">
+          {!isClient ? (
+            <section className="md:col-span-2">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-bold text-primary">Featured opportunities</h2>
+                <Link
+                  to="/explore"
+                  className="inline-flex shrink-0 items-center gap-1 text-xs font-bold text-secondary"
+                >
+                  See all <ArrowRight size={13} />
+                </Link>
+              </div>
+              <div className="no-scrollbar -mx-5 mt-3 flex snap-x gap-3 overflow-x-auto px-5 pb-3 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0">
+                {isLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading opportunities…</p>
+                ) : featured.length ? (
+                  featured.map((item) => (
+                    <div key={item.id} className="w-[82%] shrink-0 snap-start sm:w-[70%] md:w-auto">
+                      <OpportunityCard opportunity={item} />
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-muted-foreground">New opportunities are on the way.</p>
+                )}
+              </div>
+            </section>
+          ) : (
+            <section>
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-lg font-bold text-primary">Your hiring workspace</h2>
+                <Link
+                  to="/proposals"
+                  className="inline-flex items-center gap-1 text-xs font-bold text-secondary"
+                >
+                  Open <ArrowRight size={13} />
+                </Link>
+              </div>
+              <div className="mt-3 grid grid-cols-2 gap-3">
+                <Link to="/proposals" className="rounded-2xl border border-border bg-muted p-4">
+                  <FileText size={22} className="text-secondary" />
+                  <p className="mt-3 text-sm font-bold">Review proposals</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Compare applicants and hire.
+                  </p>
+                </Link>
+                <Link to="/contracts" className="rounded-2xl border border-border bg-muted p-4">
+                  <ShieldCheck size={22} className="text-secondary" />
+                  <p className="mt-3 text-sm font-bold">Fund milestones</p>
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    Approve and release work.
+                  </p>
+                </Link>
+              </div>
+            </section>
+          )}
 
-        <Link to="/wallet" className="relative block h-36 overflow-hidden rounded-3xl bg-primary shadow-card">
-          <img
-            src={walletBanner}
-            alt="Secure Afrixa wallet and payments"
-            loading="lazy"
-            width={1408}
-            height={704}
-            className="absolute inset-0 size-full object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-primary via-primary/90 to-transparent" />
-          <div className="relative flex h-full max-w-[70%] flex-col justify-center p-5 text-primary-foreground">
-            <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-gold">
-              <Wallet size={14} weight="fill" /> Secure payments
-            </p>
-            <h2 className="mt-1 text-xl font-bold">Afrixa Wallet &amp; Payments</h2>
-            <p className="mt-1 text-xs text-primary-foreground/70">Fund. Earn. Receive. Withdraw.</p>
-          </div>
-        </Link>
-
-        <section>
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-primary">From your network</h2>
-            <Link to="/feed" className="inline-flex items-center gap-1 text-xs font-bold text-secondary">
-              See all <ArrowRight size={13} />
-            </Link>
-          </div>
-          <div className="mt-3 space-y-3">
-            <PostComposer />
-            {feedLoading ? (
-              <p className="text-sm text-muted-foreground">Loading posts…</p>
-            ) : posts.length ? (
-              posts.map((post) => <PostCard key={post.id} post={post} />)
-            ) : (
-              <p className="text-sm text-muted-foreground">
-                No posts yet — share an update or connect with people to fill your feed.
+          <Link
+            to="/wallet"
+            className="relative block h-36 overflow-hidden rounded-3xl bg-primary shadow-card md:h-48"
+          >
+            <img
+              src={walletBanner}
+              alt="Secure Afrixa wallet and payments"
+              loading="lazy"
+              width={1408}
+              height={704}
+              className="absolute inset-0 size-full object-cover"
+            />
+            <div className="absolute inset-0 bg-gradient-to-r from-primary via-primary/90 to-transparent" />
+            <div className="relative flex h-full max-w-[70%] flex-col justify-center p-5 text-primary-foreground">
+              <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-gold">
+                <Wallet size={14} weight="fill" /> Secure payments
               </p>
-            )}
-          </div>
-        </section>
+              <h2 className="mt-1 text-xl font-bold">Afrixa Wallet &amp; Payments</h2>
+              <p className="mt-1 text-xs text-primary-foreground/70">
+                Fund. Earn. Receive. Withdraw.
+              </p>
+            </div>
+          </Link>
+
+          <section className="md:col-span-2">
+            <div className="mx-auto w-full max-w-3xl">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-bold text-primary">From your network</h2>
+                <Link
+                  to="/feed"
+                  className="inline-flex items-center gap-1 text-xs font-bold text-secondary"
+                >
+                  See all <ArrowRight size={13} />
+                </Link>
+              </div>
+              <div className="mt-3 space-y-3">
+                <PostComposer />
+                {feedLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading posts…</p>
+                ) : posts.length ? (
+                  posts.map((post) => <PostCard key={post.id} post={post} />)
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    No posts yet — share an update or connect with people to fill your feed.
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
+        </div>
       </main>
     </AppShell>
   );

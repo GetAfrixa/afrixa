@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { useAuth } from "@/hooks/useAuth";
-import logoImg from "@/assets/afrixa-logo.png";
+import logoImg from "@/assets/afrixa-wordmark.png";
 import { COUNTRIES } from "@/lib/afrixa";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -112,15 +112,24 @@ function AuthPage() {
   }
 
   return (
-    <div className="mx-auto min-h-screen w-full max-w-md bg-background">
-      <div className="surface-hero px-6 pb-8 pt-12 text-primary-foreground">
-        <Link to="/" className="text-xs font-medium text-white/70">
-          ← Back
-        </Link>
-        <div className="mt-5 inline-block rounded-2xl bg-card px-3 py-1">
-          <img src={logoImg} alt="Afrixa" width={1020} height={539} className="h-14 w-auto" />
+    <div className="mx-auto min-h-screen w-full max-w-md bg-background md:max-w-xl lg:my-8 lg:grid lg:min-h-[calc(100vh-4rem)] lg:max-w-6xl lg:grid-cols-[0.85fr_1.15fr] lg:overflow-hidden lg:rounded-3xl lg:border lg:border-border lg:shadow-card">
+      <div className="surface-hero px-6 pb-8 pt-8 text-primary-foreground lg:flex lg:flex-col lg:justify-center lg:px-12 lg:py-16">
+        <div className="flex items-center gap-4">
+          <Link
+            to="/"
+            className="inline-flex h-10 shrink-0 items-center rounded-full border border-white/20 bg-white/10 px-3 text-xs font-semibold text-white/85 transition-colors hover:bg-white/20"
+          >
+            ← <span className="ml-1.5">Back</span>
+          </Link>
+          <Link
+            to="/"
+            aria-label="Afrixa home"
+            className="inline-flex h-14 items-center rounded-2xl bg-white px-4 shadow-card"
+          >
+            <img src={logoImg} alt="Afrixa" width={430} height={143} className="h-10 w-auto" />
+          </Link>
         </div>
-        <h1 className="mt-4 text-[28px] font-bold leading-tight">
+        <h1 className="mt-5 text-[28px] font-bold leading-tight lg:mt-8 lg:text-4xl">
           {isSignUp ? "Create your account" : "Welcome back"}
         </h1>
         <p className="mt-2 text-sm text-white/70">
@@ -130,7 +139,10 @@ function AuthPage() {
         </p>
       </div>
 
-      <form onSubmit={submit} className="space-y-4 px-6 py-8">
+      <form
+        onSubmit={submit}
+        className="space-y-4 px-6 py-8 lg:flex lg:flex-col lg:justify-center lg:px-16 lg:py-12"
+      >
         {isSignUp ? (
           <div className="flex gap-1 rounded-full border border-border bg-card p-1">
             {(["individual", "organization"] as const).map((kind) => (
@@ -139,7 +151,9 @@ function AuthPage() {
                 type="button"
                 onClick={() => setAccountType(kind)}
                 className={`flex-1 rounded-full py-2 text-xs font-semibold ${
-                  accountType === kind ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+                  accountType === kind
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground"
                 }`}
               >
                 {kind === "individual" ? "Individual" : "Organization"}

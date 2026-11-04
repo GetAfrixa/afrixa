@@ -137,11 +137,8 @@
 }
 
 @utility surface-hero {
-  background-image: radial-gradient(
-      120% 100% at 10% 0%,
-      oklch(0.4 0.075 161) 0%,
-      transparent 60%
-    ),
+  background-image:
+    radial-gradient(120% 100% at 10% 0%, oklch(0.4 0.075 161) 0%, transparent 60%),
     linear-gradient(160deg, oklch(0.27 0.048 165) 0%, oklch(0.22 0.04 168) 100%);
 }
 
@@ -154,4 +151,16 @@
   &::-webkit-scrollbar {
     display: none;
   }
+}
+
+.globe-blend {
+  mix-blend-mode: multiply;
+  -webkit-mask-image:
+    linear-gradient(to right, transparent 0%, #000 12%, #000 88%, transparent 100%),
+    linear-gradient(to bottom, transparent 0%, #000 12%, #000 82%, transparent 100%);
+  -webkit-mask-composite: source-in;
+  mask-image:
+    linear-gradient(to right, transparent 0%, #000 12%, #000 88%, transparent 100%),
+    linear-gradient(to bottom, transparent 0%, #000 12%, #000 82%, transparent 100%);
+  mask-composite: intersect;
 }

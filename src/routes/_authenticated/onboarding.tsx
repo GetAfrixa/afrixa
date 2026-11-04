@@ -6,12 +6,7 @@ import { Briefcase, UserFocus } from "@phosphor-icons/react";
 
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import {
-  COUNTRIES,
-  EXPERIENCE_LEVELS,
-  LANGUAGES,
-  SKILLS,
-} from "@/lib/afrixa";
+import { COUNTRIES, EXPERIENCE_LEVELS, LANGUAGES, SKILLS } from "@/lib/afrixa";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -115,7 +110,7 @@ function OnboardingPage() {
   }
 
   return (
-    <div className="mx-auto min-h-screen w-full max-w-md bg-background pb-10">
+    <div className="mx-auto min-h-screen w-full max-w-md bg-background pb-10 md:max-w-xl lg:max-w-2xl">
       <div className="surface-hero px-6 pb-10 pt-12 text-primary-foreground">
         <p className="text-xs font-medium uppercase tracking-wide text-white/60">
           Step {step + 1} of 2
@@ -147,11 +142,7 @@ function OnboardingPage() {
               description="Post roles and pay safely through escrow."
               icon={<Briefcase size={22} weight="bold" />}
             />
-            <Button
-              className="h-12 w-full"
-              disabled={!role}
-              onClick={() => setStep(1)}
-            >
+            <Button className="h-12 w-full" disabled={!role} onClick={() => setStep(1)}>
               Continue
             </Button>
           </>
@@ -310,11 +301,7 @@ function OnboardingPage() {
               <Button variant="outline" className="h-12 flex-1" onClick={() => setStep(0)}>
                 Back
               </Button>
-              <Button
-                className="h-12 flex-1"
-                disabled={busy || !fullName}
-                onClick={finish}
-              >
+              <Button className="h-12 flex-1" disabled={busy || !fullName} onClick={finish}>
                 {busy ? "Saving…" : "Finish"}
               </Button>
             </div>

@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { MagnifyingGlass, ShieldCheck } from "@phosphor-icons/react";
 import { useState } from "react";
@@ -39,9 +39,13 @@ export const Route = createFileRoute("/_authenticated/talent")({
 
 function TalentDirectory() {
   const [term, setTerm] = useState("");
+  const isLegacyProfilePath = useRouterState({
+    select: (state) => state.location.pathname.startsWith("/talent/"),
+  });
 
   const { data: talent = [], isLoading } = useQuery({
     queryKey: ["talent-directory"],
+    enabled: !isLegacyProfilePath,
     queryFn: async (): Promise<TalentRow[]> => {
       const { data, error } = await supabase
         .from("profiles")
@@ -55,6 +59,8 @@ function TalentDirectory() {
       return data ?? [];
     },
   });
+
+  if (isLegacyProfilePath) return <Outlet />;
 
   const query = term.trim().toLowerCase();
   const results = query

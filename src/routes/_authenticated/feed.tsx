@@ -112,7 +112,7 @@ function NetworkFeedPage() {
         }
       />
 
-      <div className="sticky top-[72px] z-10 bg-background/95 px-4 pb-3 backdrop-blur">
+      <div className="sticky top-[72px] z-10 mx-auto max-w-3xl bg-background/95 px-4 pb-3 backdrop-blur">
         <div className="flex gap-1 rounded-full border border-border bg-card p-1">
           {TABS.map((item) => (
             <button
@@ -131,7 +131,7 @@ function NetworkFeedPage() {
         </div>
       </div>
 
-      <div className="space-y-3 px-4 pb-6">
+      <div className="mx-auto max-w-3xl space-y-3 px-4 pb-6">
         <AddPhotoPrompt />
         {tab === "feed" ? (
           <>
@@ -198,7 +198,11 @@ function NetworkFeedPage() {
                       className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-full bg-muted text-sm font-semibold text-muted-foreground"
                     >
                       {row.person?.avatar_url ? (
-                        <img src={row.person.avatar_url} alt="" className="size-full object-cover" />
+                        <img
+                          src={row.person.avatar_url}
+                          alt=""
+                          className="size-full object-cover"
+                        />
                       ) : (
                         initials(row.person?.full_name ?? "A")
                       )}

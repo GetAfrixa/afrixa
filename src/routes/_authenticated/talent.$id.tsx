@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChatCircleDots, ShieldCheck, UserPlus } from "@phosphor-icons/react";
 import { toast } from "sonner";
@@ -20,23 +20,27 @@ import { PostCard } from "@/components/afrixa/PostCard";
 export const Route = createFileRoute("/_authenticated/talent/$id")({
   head: () => ({
     meta: [
-      { title: "Talent profile — Afrixa" },
+      { title: "Member profile — Afrixa" },
       {
         name: "description",
-        content: "View an Afrixa talent profile: skills, verified assessments, portfolio work and availability.",
+        content: "View an Afrixa member's profile, skills, portfolio work and recent activity.",
       },
-      { property: "og:title", content: "Talent profile — Afrixa" },
-      { property: "og:description", content: "Verified Afrixa talent with portfolio work and skill assessments." },
+      { property: "og:title", content: "Member profile — Afrixa" },
+      { property: "og:description", content: "Explore an Afrixa member's profile, portfolio and activity." },
       { property: "og:type", content: "profile" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: TalentProfilePage,
+  component: TalentProfileRoute,
 });
 
-function TalentProfilePage() {
+function TalentProfileRoute() {
   const { id } = Route.useParams();
-  const navigate = Route.useNavigate();
+  return <PublicProfilePage id={id} />;
+}
+
+export function PublicProfilePage({ id }: { id: string }) {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const [contacting, setContacting] = useState(false);
@@ -144,7 +148,7 @@ function TalentProfilePage() {
   if (isLoading) {
     return (
       <AppShell>
-        <ScreenHeader title="Talent" back />
+        <ScreenHeader title="Profile" back />
         <p className="px-4 text-sm text-muted-foreground">Loading profile…</p>
       </AppShell>
     );
@@ -153,7 +157,7 @@ function TalentProfilePage() {
   if (!person) {
     return (
       <AppShell>
-        <ScreenHeader title="Talent" back />
+        <ScreenHeader title="Profile" back />
         <p className="px-4 text-sm text-muted-foreground">This profile is not available.</p>
       </AppShell>
     );
@@ -161,7 +165,7 @@ function TalentProfilePage() {
 
   return (
     <AppShell>
-      <ScreenHeader title={person.full_name || "Talent"} subtitle={person.primary_skill ?? "Afrixa talent"} back />
+      <ScreenHeader title={person.full_name || "Profile"} subtitle={person.primary_skill ?? "Afrixa member"} back />
       <main className="space-y-5 px-4">
         <section className="surface-hero rounded-2xl p-5 text-primary-foreground shadow-lift">
           <div className="flex items-start gap-4">
@@ -220,6 +224,16 @@ function TalentProfilePage() {
                   ) : null}
                   <h3 className="text-sm font-semibold">{item.title}</h3>
                   <p className="mt-1 text-xs text-muted-foreground">{item.category ?? "Work sample"}</p>
+                  {item.link_url ? (
+                    <a
+                      href={item.link_url}
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="mt-2 block truncate text-xs font-semibold text-primary hover:underline"
+                    >
+                      View work sample
+                    </a>
+                  ) : null}
                 </article>
               ))
             ) : (
@@ -245,7 +259,7 @@ function TalentProfilePage() {
 
         <div className="flex items-center gap-2">
           <Button className="h-12 flex-1" disabled={contacting} onClick={() => void contact()}>
-            <ChatCircleDots size={16} /> {contacting ? "Opening chat…" : "Message talent"}
+            <ChatCircleDots size={16} /> {contacting ? "Opening chat…" : "Message"}
           </Button>
           {user?.id !== id ? (
             <Button
