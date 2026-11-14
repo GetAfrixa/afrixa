@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { MagnifyingGlass, ShieldCheck } from "@phosphor-icons/react";
 import { useState } from "react";
 
-import { supabase } from "@/integrations/supabase/client";
+import { listTalentDirectory } from "@/lib/workspace.functions";
 import { AppShell, ScreenHeader } from "@/components/afrixa/AppShell";
 import { initials } from "@/lib/afrixa";
 import { Input } from "@/components/ui/input";
@@ -23,12 +23,12 @@ type TalentRow = {
 export const Route = createFileRoute("/_authenticated/talent")({
   head: () => ({
     meta: [
-      { title: "Find talent — Afrixa" },
+      { title: "Find talent - Afrixa" },
       {
         name: "description",
         content: "Browse verified African talent on Afrixa by skill, country and assessment level.",
       },
-      { property: "og:title", content: "Find talent — Afrixa" },
+      { property: "og:title", content: "Find talent - Afrixa" },
       { property: "og:description", content: "Discover vetted freelancers and specialists ready to hire on Afrixa." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -46,18 +46,7 @@ function TalentDirectory() {
   const { data: talent = [], isLoading } = useQuery({
     queryKey: ["talent-directory"],
     enabled: !isLegacyProfilePath,
-    queryFn: async (): Promise<TalentRow[]> => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id,full_name,headline,country,primary_skill,avatar_url,verified,hourly_rate,profile_strength")
-        .eq("role", "talent")
-        .eq("onboarding_complete", true)
-        .eq("discoverable", true)
-        .order("profile_strength", { ascending: false })
-        .limit(60);
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: () => listTalentDirectory() as Promise<TalentRow[]>,
   });
 
   if (isLegacyProfilePath) return <Outlet />;
@@ -74,7 +63,7 @@ function TalentDirectory() {
   return (
     <AppShell>
       <ScreenHeader title="Find talent" subtitle="Verified professionals across Africa" back />
-      <main className="space-y-4 px-4">
+      <main className="mx-auto w-full max-w-[1060px] space-y-4 px-4 py-4 pb-8 md:px-8 md:py-6">
         <div className="relative">
           <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -88,7 +77,7 @@ function TalentDirectory() {
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading talent…</p>
         ) : results.length ? (
-          <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {results.map((person) => (
               <Link
                 key={person.id}

@@ -20,9 +20,9 @@ export const Route = createFileRoute("/_authenticated/payment-callback")({
   validateSearch: (search) => searchSchema.parse(search),
   head: () => ({
     meta: [
-      { title: "Payment status — Afrixa" },
+      { title: "Payment status - Afrixa" },
       { name: "description", content: "Confirming your Afrixa escrow payment with the payment gateway." },
-      { property: "og:title", content: "Payment status — Afrixa" },
+      { property: "og:title", content: "Payment status - Afrixa" },
       { property: "og:description", content: "Afrixa confirms every escrow payment directly with the gateway." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

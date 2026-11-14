@@ -5,7 +5,14 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { z } from "zod";
 
-import { supabase } from "@/integrations/supabase/client";
+import {
+  addPayoutMethod,
+  deletePayoutMethod,
+  getPaymentProfile,
+  listPayoutMethods,
+  savePreferredGateway,
+  setDefaultPayoutMethod,
+} from "@/lib/workspace.functions";
 import { AppShell, ScreenHeader } from "@/components/afrixa/AppShell";
 import { useAuth } from "@/hooks/useAuth";
 import { COUNTRIES } from "@/lib/afrixa";
@@ -38,7 +45,7 @@ const bankSchema = z.object({
   account_number: z
     .string()
     .trim()
-    .regex(/^[0-9]{6,20}$/, "Account number must be 6–20 digits"),
+    .regex(/^[0-9]{6,20}$/, "Account number must be 6-20 digits"),
 });
 
 const momoSchema = z.object({
@@ -53,13 +60,13 @@ const momoSchema = z.object({
 export const Route = createFileRoute("/_authenticated/payment-setup")({
   head: () => ({
     meta: [
-      { title: "Payment setup — Afrixa" },
+      { title: "Payment setup - Afrixa" },
       {
         name: "description",
         content:
           "Add your bank or mobile money details and choose a payment method before funding a gig's escrow on Afrixa.",
       },
-      { property: "og:title", content: "Payment setup — Afrixa" },
+      { property: "og:title", content: "Payment setup - Afrixa" },
       {
         property: "og:description",
         content: "Set up bank details and a checkout method so escrow funding is one tap on Afrixa.",
@@ -91,30 +98,13 @@ function PaymentSetupPage() {
   const { data: profile } = useQuery({
     queryKey: ["payment-profile", userId],
     enabled: Boolean(userId),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("preferred_gateway, country")
-        .eq("id", userId!)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => getPaymentProfile(),
   });
 
   const { data: methods = [], isLoading } = useQuery({
     queryKey: ["payout-methods", userId],
     enabled: Boolean(userId),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("payout_methods")
-        .select("id, method, country, bank_name, bank_code, account_name, account_number, phone_number, is_default")
-        .eq("user_id", userId!)
-        .order("is_default", { ascending: false })
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return (data ?? []) as PayoutMethod[];
-    },
+    queryFn: () => listPayoutMethods() as Promise<PayoutMethod[]>,
   });
 
   useEffect(() => {
@@ -124,8 +114,7 @@ function PaymentSetupPage() {
 
   const saveGateway = useMutation({
     mutationFn: async (value: string) => {
-      const { error } = await supabase.from("profiles").update({ preferred_gateway: value }).eq("id", userId!);
-      if (error) throw error;
+      await savePreferredGateway({ data: { gateway: value } });
     },
     onSuccess: async () => {
       toast.success("Checkout method saved");
@@ -139,29 +128,29 @@ function PaymentSetupPage() {
       const makeDefault = methods.length === 0;
       if (kind === "bank_transfer") {
         const parsed = bankSchema.parse(form);
-        const { error } = await supabase.from("payout_methods").insert({
-          user_id: userId!,
-          method: "bank_transfer",
-          country: parsed.country,
-          bank_name: parsed.bank_name,
-          bank_code: parsed.bank_code || null,
-          account_name: parsed.account_name,
-          account_number: parsed.account_number,
-          is_default: makeDefault,
+        await addPayoutMethod({
+          data: {
+            method: "bank_transfer",
+            country: parsed.country,
+            bank_name: parsed.bank_name,
+            bank_code: parsed.bank_code || null,
+            account_name: parsed.account_name,
+            account_number: parsed.account_number,
+            is_default: makeDefault,
+          },
         });
-        if (error) throw error;
         return;
       }
       const parsed = momoSchema.parse(form);
-      const { error } = await supabase.from("payout_methods").insert({
-        user_id: userId!,
-        method: "mobile_money",
-        country: parsed.country,
-        account_name: parsed.account_name,
-        phone_number: parsed.phone_number,
-        is_default: makeDefault,
+      await addPayoutMethod({
+        data: {
+          method: "mobile_money",
+          country: parsed.country,
+          account_name: parsed.account_name,
+          phone_number: parsed.phone_number,
+          is_default: makeDefault,
+        },
       });
-      if (error) throw error;
     },
     onSuccess: async () => {
       toast.success("Payment details added");
@@ -186,13 +175,7 @@ function PaymentSetupPage() {
 
   const setDefault = useMutation({
     mutationFn: async (id: string) => {
-      const { error: clearError } = await supabase
-        .from("payout_methods")
-        .update({ is_default: false })
-        .eq("user_id", userId!);
-      if (clearError) throw clearError;
-      const { error } = await supabase.from("payout_methods").update({ is_default: true }).eq("id", id);
-      if (error) throw error;
+      await setDefaultPayoutMethod({ data: { id } });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["payout-methods", userId] });
@@ -202,8 +185,7 @@ function PaymentSetupPage() {
 
   const removeMethod = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("payout_methods").delete().eq("id", id);
-      if (error) throw error;
+      await deletePayoutMethod({ data: { id } });
     },
     onSuccess: async () => {
       toast.success("Removed");
@@ -218,7 +200,7 @@ function PaymentSetupPage() {
   return (
     <AppShell>
       <ScreenHeader title="Payment setup" subtitle="Bank details and checkout method" back />
-      <main className="space-y-4 px-4 pb-4">
+      <main className="mx-auto w-full max-w-2xl space-y-4 px-4 py-4 pb-8 md:px-8 md:py-6">
         <section className="rounded-2xl border border-border bg-card p-4 shadow-card">
           <div className="flex items-start gap-3">
             <span className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">

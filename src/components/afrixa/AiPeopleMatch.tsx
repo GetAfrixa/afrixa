@@ -41,7 +41,7 @@ export function AiPeopleMatch() {
 
       {match.error ? <p className="text-xs text-destructive">{match.error.message}</p> : null}
       {match.data && match.data.length === 0 ? (
-        <p className="text-xs text-muted-foreground">No close matches yet — try describing your interests differently.</p>
+        <p className="text-xs text-muted-foreground">No close matches yet - try describing your interests differently.</p>
       ) : null}
 
       <div className="space-y-2">

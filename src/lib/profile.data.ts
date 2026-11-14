@@ -1,49 +1,25 @@
-import { supabase } from "@/integrations/supabase/client";
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+
+import { sql } from "@/lib/db.server";
+import { requireAuth } from "@/lib/pg-auth-middleware";
 
 export type SkillLevel = "beginner" | "intermediate" | "advanced" | "expert";
 
-export type ProfileSkill = {
-  id: string;
-  name: string;
-  level: string;
-  years: number | null;
-};
-
+export type ProfileSkill = { id: string; name: string; level: string; years: number | null };
 export type WorkExperience = {
-  id: string;
-  title: string;
-  company: string;
-  location: string | null;
-  employment_type: string | null;
-  start_date: string;
-  end_date: string | null;
-  is_current: boolean;
-  summary: string | null;
+  id: string; title: string; company: string; location: string | null; employment_type: string | null;
+  start_date: string; end_date: string | null; is_current: boolean; summary: string | null;
 };
-
 export type EducationEntry = {
-  id: string;
-  school: string;
-  qualification: string | null;
-  field_of_study: string | null;
-  start_year: number | null;
-  end_year: number | null;
+  id: string; school: string; qualification: string | null; field_of_study: string | null;
+  start_year: number | null; end_year: number | null;
 };
-
 export type Certification = {
-  id: string;
-  name: string;
-  issuer: string;
-  issue_date: string | null;
-  expiry_date: string | null;
-  credential_url: string | null;
+  id: string; name: string; issuer: string; issue_date: string | null; expiry_date: string | null; credential_url: string | null;
 };
-
 export type ProfileDossier = {
-  skills: ProfileSkill[];
-  experience: WorkExperience[];
-  education: EducationEntry[];
-  certifications: Certification[];
+  skills: ProfileSkill[]; experience: WorkExperience[]; education: EducationEntry[]; certifications: Certification[];
 };
 
 export const SKILL_LEVELS: { value: SkillLevel; label: string; percent: number }[] = [
@@ -62,183 +38,143 @@ export function monthYear(value: string | null) {
   return new Date(value).toLocaleDateString(undefined, { month: "short", year: "numeric" });
 }
 
-export async function fetchProfileDossier(userId: string): Promise<ProfileDossier> {
-  const [skills, experience, education, certifications] = await Promise.all([
-    supabase
-      .from("profile_skills")
-      .select("id,name,level,years")
-      .eq("user_id", userId)
-      .order("position", { ascending: true })
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("work_experiences")
-      .select("id,title,company,location,employment_type,start_date,end_date,is_current,summary")
-      .eq("user_id", userId)
-      .order("start_date", { ascending: false }),
-    supabase
-      .from("education_entries")
-      .select("id,school,qualification,field_of_study,start_year,end_year")
-      .eq("user_id", userId)
-      .order("end_year", { ascending: false, nullsFirst: true }),
-    supabase
-      .from("certifications")
-      .select("id,name,issuer,issue_date,expiry_date,credential_url")
-      .eq("user_id", userId)
-      .order("issue_date", { ascending: false, nullsFirst: true }),
-  ]);
-
-  const firstError =
-    skills.error ?? experience.error ?? education.error ?? certifications.error ?? null;
-  if (firstError) throw new Error(firstError.message);
-
-  return {
-    skills: (skills.data ?? []).map((row) => ({ ...row, years: row.years ? Number(row.years) : null })),
-    experience: experience.data ?? [],
-    education: education.data ?? [],
-    certifications: certifications.data ?? [],
-  };
-}
-
-/** Top skills for several people at once — used by the network page. */
-export async function fetchSkillsForPeople(userIds: string[]) {
-  if (userIds.length === 0) return new Map<string, string[]>();
-  const { data, error } = await supabase
-    .from("profile_skills")
-    .select("user_id,name,position")
-    .in("user_id", userIds)
-    .order("position", { ascending: true });
-  if (error) throw new Error(error.message);
-  const map = new Map<string, string[]>();
-  for (const row of data ?? []) {
-    const list = map.get(row.user_id) ?? [];
-    if (list.length < 3) list.push(row.name);
-    map.set(row.user_id, list);
-  }
-  return map;
-}
-
-export async function addSkill(
-  userId: string,
-  input: { name: string; level: SkillLevel; years?: number | null },
-) {
-  const { count } = await supabase
-    .from("profile_skills")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId);
-  const { error } = await supabase.from("profile_skills").insert({
-    user_id: userId,
-    name: input.name,
-    level: input.level,
-    years: input.years ?? null,
-    position: (count ?? 0) + 1,
+export const fetchProfileDossier = createServerFn({ method: "GET" })
+  .inputValidator((input) => z.object({ userId: z.string().uuid() }).parse(input))
+  .handler(async ({ data }): Promise<ProfileDossier> => {
+    const userId = data.userId;
+    const [skills, experience, education, certifications] = await Promise.all([
+      sql<any[]>`SELECT id,name,level,years FROM public.profile_skills WHERE user_id=${userId}::uuid ORDER BY position ASC, created_at ASC`,
+      sql<any[]>`SELECT id,title,company,location,employment_type,start_date,end_date,is_current,summary FROM public.work_experiences WHERE user_id=${userId}::uuid ORDER BY start_date DESC`,
+      sql<any[]>`SELECT id,school,qualification,field_of_study,start_year,end_year FROM public.education_entries WHERE user_id=${userId}::uuid ORDER BY end_year DESC NULLS LAST`,
+      sql<any[]>`SELECT id,name,issuer,issue_date,expiry_date,credential_url FROM public.certifications WHERE user_id=${userId}::uuid ORDER BY issue_date DESC NULLS LAST`,
+    ]);
+    return {
+      skills: skills.map((row) => ({ ...row, years: row.years == null ? null : Number(row.years) })),
+      experience,
+      education,
+      certifications,
+    };
   });
-  if (error) throw new Error(error.message);
-}
 
-export async function addExperience(
-  userId: string,
-  input: {
-    title: string;
-    company: string;
-    location?: string | null;
-    start_date: string;
-    end_date?: string | null;
-    is_current: boolean;
-    summary?: string | null;
-  },
-) {
-  const { error } = await supabase.from("work_experiences").insert({
-    user_id: userId,
-    title: input.title,
-    company: input.company,
-    location: input.location ?? null,
-    start_date: input.start_date,
-    end_date: input.is_current ? null : (input.end_date ?? null),
-    is_current: input.is_current,
-    summary: input.summary ?? null,
+export const fetchSkillsForPeople = createServerFn({ method: "GET" })
+  .inputValidator((input) => z.object({ userIds: z.array(z.string().uuid()) }).parse(input))
+  .handler(async ({ data }) => {
+    if (data.userIds.length === 0) return {} as Record<string, string[]>;
+    const rows = await sql<any[]>`
+      SELECT user_id, name, position FROM public.profile_skills
+      WHERE user_id = ANY(${data.userIds}::uuid[]) ORDER BY position ASC
+    `;
+    const map: Record<string, string[]> = {};
+    for (const row of rows) {
+      const list = map[row.user_id] ?? [];
+      if (list.length < 3) list.push(row.name);
+      map[row.user_id] = list;
+    }
+    return map;
   });
-  if (error) throw new Error(error.message);
-}
 
-export async function addEducation(
-  userId: string,
-  input: {
-    school: string;
-    qualification?: string | null;
-    field_of_study?: string | null;
-    start_year?: number | null;
-    end_year?: number | null;
-  },
-) {
-  const { error } = await supabase.from("education_entries").insert({
-    user_id: userId,
-    school: input.school,
-    qualification: input.qualification ?? null,
-    field_of_study: input.field_of_study ?? null,
-    start_year: input.start_year ?? null,
-    end_year: input.end_year ?? null,
+export const addSkill = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input) => z.object({ name: z.string().min(1), level: z.string(), years: z.number().nullable().optional() }).parse(input))
+  .handler(async ({ data, context }) => {
+    const counts = await sql<{ count: string }[]>`SELECT count(*)::text AS count FROM public.profile_skills WHERE user_id=${context.userId}::uuid`;
+    const count = Number(counts[0]?.count ?? 0);
+    await sql`INSERT INTO public.profile_skills (user_id,name,level,years,position) VALUES (${context.userId}::uuid, ${data.name}, ${data.level}, ${data.years ?? null}, ${count + 1})`;
+    return { ok: true };
   });
-  if (error) throw new Error(error.message);
-}
 
-export async function addCertification(
-  userId: string,
-  input: {
-    name: string;
-    issuer: string;
-    issue_date?: string | null;
-    expiry_date?: string | null;
-    credential_url?: string | null;
-  },
-) {
-  const { error } = await supabase.from("certifications").insert({
-    user_id: userId,
-    name: input.name,
-    issuer: input.issuer,
-    issue_date: input.issue_date ?? null,
-    expiry_date: input.expiry_date ?? null,
-    credential_url: input.credential_url ?? null,
+export const addExperience = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input) => z.object({
+    title: z.string().min(1), company: z.string().min(1), location: z.string().nullable().optional(),
+    start_date: z.string(), end_date: z.string().nullable().optional(), is_current: z.boolean(), summary: z.string().nullable().optional(),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    await sql`INSERT INTO public.work_experiences (user_id,title,company,location,start_date,end_date,is_current,summary)
+      VALUES (${context.userId}::uuid, ${data.title}, ${data.company}, ${data.location ?? null}, ${data.start_date}::date, ${data.is_current ? null : (data.end_date ?? null)}::date, ${data.is_current}, ${data.summary ?? null})`;
+    return { ok: true };
   });
-  if (error) throw new Error(error.message);
-}
 
-export type DossierTable =
-  | "profile_skills"
-  | "work_experiences"
-  | "education_entries"
-  | "certifications";
+export const addEducation = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input) => z.object({
+    school: z.string().min(1), qualification: z.string().nullable().optional(), field_of_study: z.string().nullable().optional(),
+    start_year: z.number().nullable().optional(), end_year: z.number().nullable().optional(),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    await sql`INSERT INTO public.education_entries (user_id,school,qualification,field_of_study,start_year,end_year)
+      VALUES (${context.userId}::uuid, ${data.school}, ${data.qualification ?? null}, ${data.field_of_study ?? null}, ${data.start_year ?? null}, ${data.end_year ?? null})`;
+    return { ok: true };
+  });
 
-export async function deleteDossierRow(table: DossierTable, id: string) {
-  const { error } = await supabase.from(table).delete().eq("id", id);
-  if (error) throw new Error(error.message);
-}
+export const addCertification = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input) => z.object({
+    name: z.string().min(1), issuer: z.string().min(1), issue_date: z.string().nullable().optional(),
+    expiry_date: z.string().nullable().optional(), credential_url: z.string().nullable().optional(),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    await sql`INSERT INTO public.certifications (user_id,name,issuer,issue_date,expiry_date,credential_url)
+      VALUES (${context.userId}::uuid, ${data.name}, ${data.issuer}, ${data.issue_date ?? null}::date, ${data.expiry_date ?? null}::date, ${data.credential_url ?? null})`;
+    return { ok: true };
+  });
 
-export async function updateHourlyRate(userId: string, rate: number | null) {
-  const { error } = await supabase.from("profiles").update({ hourly_rate: rate }).eq("id", userId);
-  if (error) throw new Error(error.message);
-}
+export type DossierTable = "profile_skills" | "work_experiences" | "education_entries" | "certifications";
+const ALLOWED_TABLES = new Set<DossierTable>(["profile_skills", "work_experiences", "education_entries", "certifications"]);
 
-/** Shares a new position with the network as a feed post, optionally updating the headline. */
-export async function announcePosition(
-  userId: string,
-  input: { title: string; company: string; summary?: string | null; is_current: boolean },
-  opts: { share: boolean; updateHeadline: boolean },
-) {
-  if (opts.updateHeadline) {
-    const { error } = await supabase
-      .from("profiles")
-      .update({ headline: `${input.title} at ${input.company}` })
-      .eq("id", userId);
-    if (error) throw new Error(error.message);
-  }
-  if (opts.share) {
-    const lead = input.is_current
-      ? `I'm happy to share that I'm starting a new position as ${input.title} at ${input.company}!`
-      : `I've added a past role to my profile: ${input.title} at ${input.company}.`;
-    const body = input.summary ? `${lead}\n\n${input.summary}` : lead;
-    const { error } = await supabase
-      .from("posts")
-      .insert({ author_id: userId, body, kind: "position", visibility: "public" });
-    if (error) throw new Error(error.message);
-  }
-}
+export const deleteDossierRow = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input) => z.object({ table: z.enum(["profile_skills","work_experiences","education_entries","certifications"]), id: z.string().uuid() }).parse(input))
+  .handler(async ({ data, context }) => {
+    if (!ALLOWED_TABLES.has(data.table)) throw new Error("Invalid table");
+    await sql.unsafe(`DELETE FROM public.${data.table} WHERE id = $1::uuid AND user_id = $2::uuid`, [data.id, context.userId] as any[]);
+    return { ok: true };
+  });
+
+export const updateHourlyRate = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input) => z.object({ rate: z.number().nullable() }).parse(input))
+  .handler(async ({ data, context }) => {
+    await sql`UPDATE public.profiles SET hourly_rate = ${data.rate} WHERE id = ${context.userId}::uuid`;
+    return { ok: true };
+  });
+
+export const announcePosition = createServerFn({ method: "POST" })
+  .middleware([requireAuth])
+  .inputValidator((input) => z.object({
+    title: z.string(), company: z.string(), summary: z.string().nullable().optional(), is_current: z.boolean(),
+    share: z.boolean(), updateHeadline: z.boolean(),
+  }).parse(input))
+  .handler(async ({ data, context }) => {
+    if (data.updateHeadline) {
+      await sql`UPDATE public.profiles SET headline = ${`${data.title} at ${data.company}`} WHERE id = ${context.userId}::uuid`;
+    }
+    if (data.share) {
+      const lead = data.is_current
+        ? `I'm happy to share that I'm starting a new position as ${data.title} at ${data.company}!`
+        : `I've added a past role to my profile: ${data.title} at ${data.company}.`;
+      const body = data.summary ? `${lead}\n\n${data.summary}` : lead;
+      await sql`INSERT INTO public.posts (author_id, body, kind, visibility) VALUES (${context.userId}::uuid, ${body}, 'position', 'public')`;
+    }
+    return { ok: true };
+  });
+
+export const fetchPublicProfile = createServerFn({ method: "GET" })
+  .inputValidator((input) => z.object({ id: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    const rows = await sql<any[]>`
+      SELECT id,full_name,headline,bio,country,primary_skill,years_experience,languages,avatar_url,verified,hourly_rate,profile_strength,role
+      FROM public.profiles WHERE id = ${data.id}::uuid LIMIT 1
+    `;
+    return rows[0] ?? null;
+  });
+
+export const fetchPortfolioItems = createServerFn({ method: "GET" })
+  .inputValidator((input) => z.object({ userId: z.string().uuid() }).parse(input))
+  .handler(async ({ data }) => {
+    return await sql<any[]>`
+      SELECT id,title,category,link_url,image_url
+      FROM public.portfolio_items WHERE user_id = ${data.userId}::uuid
+      ORDER BY created_at DESC
+    `;
+  });

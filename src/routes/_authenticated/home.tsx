@@ -19,7 +19,6 @@ import logoImg from "@/assets/afrixa-wordmark.png";
 import opportunityBanner from "@/assets/home-opportunity-banner.jpg";
 import networkBanner from "@/assets/home-network-banner.jpg";
 import walletBanner from "@/assets/home-wallet-banner.jpg";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { AppShell } from "@/components/afrixa/AppShell";
 import { NotificationBell } from "@/components/afrixa/NotificationBell";
@@ -28,11 +27,12 @@ import { initials, type Opportunity } from "@/lib/afrixa";
 import { PostCard } from "@/components/afrixa/PostCard";
 import { PostComposer } from "@/components/afrixa/PostComposer";
 import { fetchFeed } from "@/lib/social.data";
+import { listFeedOpportunities } from "@/lib/opportunities.functions";
 
 export const Route = createFileRoute("/_authenticated/home")({
   head: () => ({
     meta: [
-      { title: "Your Afrixa feed — matched opportunities" },
+      { title: "Your Afrixa feed - matched opportunities" },
       {
         name: "description",
         content: "See jobs, gigs and freelance projects matched to your skills.",
@@ -85,7 +85,7 @@ const CLIENT_LINKS: QuickLink[] = [
 
 const PROMOTIONS = [
   {
-    eyebrow: "YOUR NEXT MOVE",
+    eyebrow: "Your next move",
     title: "Opportunity is calling",
     copy: "Discover work that matches your talent and ambition.",
     action: "Explore now",
@@ -93,7 +93,7 @@ const PROMOTIONS = [
     image: opportunityBanner,
   },
   {
-    eyebrow: "GROW TOGETHER",
+    eyebrow: "Grow together",
     title: "Meet your network",
     copy: "Connect, share your progress and build meaningful relationships.",
     action: "Join the conversation",
@@ -124,19 +124,11 @@ function HomePage() {
 
   const { data: opportunities = [], isLoading } = useQuery({
     queryKey: ["opportunities", "feed"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("opportunities")
-        .select("*")
-        .order("created_at", { ascending: false })
-        .limit(20);
-      if (error) throw error;
-      return (data ?? []) as Opportunity[];
-    },
+    queryFn: () => listFeedOpportunities(),
   });
   const { data: posts = [], isLoading: feedLoading } = useQuery({
     queryKey: ["feed", user?.id],
-    queryFn: () => fetchFeed(user?.id),
+    queryFn: () => fetchFeed({ data: { userId: user?.id } }),
   });
 
   const featured = opportunities.filter((item) => item.status === "open").slice(0, 5);
@@ -147,37 +139,49 @@ function HomePage() {
 
   return (
     <AppShell className="bg-card">
-      <header className="px-5 pb-3 pt-5 md:px-8 md:pt-8">
+      <header className="border-b border-border/70 px-5 pb-4 pt-5 md:px-8 md:pb-5 md:pt-7">
         <div className="flex items-center justify-between gap-4">
-          <span className="inline-flex rounded-xl bg-white px-2 py-1 shadow-sm">
-            <img
-              src={logoImg}
-              alt="Afrixa"
-              width={430}
-              height={143}
-              className="h-12 w-auto object-contain"
-            />
-          </span>
+          <div className="min-w-0">
+            <span className="inline-flex rounded-xl bg-white px-2 py-1 shadow-sm md:hidden">
+              <img
+                src={logoImg}
+                alt="Afrixa"
+                width={430}
+                height={143}
+                className="h-11 w-auto object-contain"
+              />
+            </span>
+            <div className="hidden min-w-0 md:block">
+              <p className="text-sm font-medium text-muted-foreground">{greeting()}</p>
+              <h1 className="truncate text-2xl font-bold text-primary">
+                {firstName}
+              </h1>
+            </div>
+            <p className="mt-1 text-[11px] font-medium text-muted-foreground md:hidden">
+              Connect. Discover. Work. Grow. Earn.
+            </p>
+          </div>
           <div className="flex items-center gap-2">
             <NotificationBell tone="light" />
             <Link
               to="/profile"
               aria-label="Open profile"
-              className="flex size-10 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground ring-4 ring-muted"
+              className="flex size-10 items-center justify-center overflow-hidden rounded-full bg-primary text-xs font-bold text-primary-foreground ring-4 ring-muted"
             >
-              {initials(profile?.full_name)}
+              {profile?.avatar_url ? (
+                <img src={profile.avatar_url} alt="" className="size-full object-cover" />
+              ) : (
+                initials(profile?.full_name)
+              )}
             </Link>
           </div>
         </div>
-        <p className="mt-0.5 text-[10px] font-medium text-muted-foreground">
-          Connect. Discover. Work. Grow. Earn.
-        </p>
       </header>
 
       <main className="space-y-8 px-5 pb-3 md:space-y-10 md:px-8 md:pb-8">
-        <section>
+        <section className="md:hidden">
           <p className="text-sm font-semibold text-secondary">{greeting()},</p>
-          <h1 className="text-2xl font-bold text-primary">{firstName} 👋</h1>
+          <h1 className="text-2xl font-bold text-primary">{firstName}</h1>
 
           {!isClient ? (
             <Link
@@ -189,7 +193,10 @@ function HomePage() {
             </Link>
           ) : null}
 
-          <div className="relative mt-5 h-48 overflow-hidden rounded-3xl bg-primary shadow-lift md:h-64">
+        </section>
+
+        <section>
+          <div className="relative h-48 overflow-hidden rounded-3xl bg-primary shadow-lift md:h-64">
             <img
               key={activePromotion.image}
               src={activePromotion.image}
@@ -200,9 +207,7 @@ function HomePage() {
             />
             <div className="absolute inset-0 bg-gradient-to-r from-primary via-primary/90 to-transparent" />
             <div className="relative flex h-full max-w-[72%] flex-col items-start justify-center p-5 text-primary-foreground md:max-w-[55%] md:p-8">
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-gold">
-                {activePromotion.eyebrow}
-              </p>
+              <p className="text-xs font-semibold text-gold">{activePromotion.eyebrow}</p>
               <h2 className="mt-1 text-2xl font-bold leading-tight md:text-3xl">
                 {activePromotion.title}
               </h2>
@@ -243,7 +248,7 @@ function HomePage() {
               to={to}
               className="group flex min-w-0 flex-col items-center gap-2 text-center"
             >
-              <span className="flex size-14 items-center justify-center rounded-2xl border border-border bg-muted text-primary shadow-card transition-transform group-hover:-translate-y-0.5">
+              <span className="flex size-14 items-center justify-center rounded-2xl border border-border bg-muted text-primary transition-colors group-hover:border-secondary group-hover:text-secondary">
                 <Icon size={25} weight="bold" />
               </span>
               <span className="w-full text-xs font-semibold text-foreground">{label}</span>
@@ -321,7 +326,7 @@ function HomePage() {
             />
             <div className="absolute inset-0 bg-gradient-to-r from-primary via-primary/90 to-transparent" />
             <div className="relative flex h-full max-w-[70%] flex-col justify-center p-5 text-primary-foreground">
-              <p className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-gold">
+              <p className="inline-flex items-center gap-1.5 text-xs font-semibold text-gold">
                 <Wallet size={14} weight="fill" /> Secure payments
               </p>
               <h2 className="mt-1 text-xl font-bold">Afrixa Wallet &amp; Payments</h2>
@@ -350,7 +355,7 @@ function HomePage() {
                   posts.map((post) => <PostCard key={post.id} post={post} />)
                 ) : (
                   <p className="text-sm text-muted-foreground">
-                    No posts yet — share an update or connect with people to fill your feed.
+                    No posts yet - share an update or connect with people to fill your feed.
                   </p>
                 )}
               </div>

@@ -17,7 +17,7 @@ export function PersonCard({ person }: { person: PersonSuggestion }) {
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["people"] });
 
   const connect = useMutation({
-    mutationFn: () => requestConnection(user!.id, person.id),
+    mutationFn: () => requestConnection({ data: { addresseeId: person.id } }),
     onSuccess: () => {
       invalidate();
       queryClient.invalidateQueries({ queryKey: ["network"] });
@@ -27,7 +27,7 @@ export function PersonCard({ person }: { person: PersonSuggestion }) {
   });
 
   const follow = useMutation({
-    mutationFn: () => toggleFollow(user!.id, person.id, person.following),
+    mutationFn: () => toggleFollow({ data: { targetId: person.id, following: person.following } }),
     onSuccess: (nowFollowing) => {
       invalidate();
       toast.success(nowFollowing ? "Following" : "Unfollowed");
@@ -36,7 +36,7 @@ export function PersonCard({ person }: { person: PersonSuggestion }) {
   });
 
   const message = useMutation({
-    mutationFn: () => openDirectConversation(user!.id, person.id),
+    mutationFn: () => openDirectConversation({ data: { otherId: person.id } }),
     onSuccess: (id) => navigate({ to: "/messages/$id", params: { id } }),
     onError: (error: Error) => toast.error(error.message),
   });

@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { sql } from "@/lib/db.server";
+import { requireAuth } from "@/lib/pg-auth-middleware";
 
 export type PeopleMatch = {
   id: string;
@@ -14,27 +15,26 @@ export type PeopleMatch = {
 };
 
 export const recommendPeople = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((data) => z.object({ interests: z.string().trim().min(5).max(1000) }).parse(data))
   .handler(async ({ data, context }): Promise<PeopleMatch[]> => {
-    const { supabase, userId } = context;
+    const userId = context.userId;
     const { rankPeople } = await import("./people-match.server");
 
-    const { data: people, error } = await supabase
-      .from("profiles")
-      .select("id,full_name,headline,avatar_url,verified,country,role,primary_skill")
-      .eq("discoverable", true)
-      .neq("id", userId)
-      .limit(80);
-    if (error) throw new Error(error.message);
-    if (!people?.length) return [];
+    const people = await sql<any[]>`
+      SELECT id,full_name,headline,avatar_url,verified,country,role,primary_skill
+      FROM public.profiles
+      WHERE discoverable = true AND id <> ${userId}::uuid
+      LIMIT 80
+    `;
+    if (!people.length) return [];
 
-    const { data: skills } = await supabase
-      .from("profile_skills")
-      .select("user_id,name")
-      .in("user_id", people.map((p) => p.id));
+    const skills = await sql<any[]>`
+      SELECT user_id,name FROM public.profile_skills
+      WHERE user_id = ANY(${people.map((p) => p.id)}::uuid[])
+    `;
     const skillMap = new Map<string, string[]>();
-    for (const row of skills ?? []) {
+    for (const row of skills) {
       const list = skillMap.get(row.user_id) ?? [];
       if (list.length < 6) list.push(row.name);
       skillMap.set(row.user_id, list);

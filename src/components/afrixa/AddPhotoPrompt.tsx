@@ -4,7 +4,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { updateAvatar } from "@/lib/workspace.functions";
 import { initials } from "@/lib/afrixa";
 import { uploadUserFile } from "@/lib/uploads";
 
@@ -25,8 +25,7 @@ export function AddPhotoPrompt() {
     setBusy(true);
     try {
       const url = await uploadUserFile("avatars", user.id, file);
-      const { error } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", user.id);
-      if (error) throw error;
+      await updateAvatar({ data: { avatarUrl: url } });
       refreshProfile();
       toast.success("Profile photo added");
     } catch (error) {

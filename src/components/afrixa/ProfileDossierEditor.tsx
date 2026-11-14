@@ -42,7 +42,7 @@ export function ProfileDossierEditor({
 
   const { data: dossier } = useQuery({
     queryKey: ["dossier", userId],
-    queryFn: () => fetchProfileDossier(userId),
+    queryFn: () => fetchProfileDossier({ data: { userId } }),
   });
 
   function refresh() {
@@ -51,7 +51,7 @@ export function ProfileDossierEditor({
 
   const remove = useMutation({
     mutationFn: ({ table, id }: { table: DossierTable; id: string }) =>
-      deleteDossierRow(table, id),
+      deleteDossierRow({ data: { table, id } }),
     onSuccess: () => {
       refresh();
       toast.success("Removed");
@@ -60,7 +60,7 @@ export function ProfileDossierEditor({
   });
 
   const saveRate = useMutation({
-    mutationFn: () => updateHourlyRate(userId, rate ? Number(rate) : null),
+    mutationFn: () => updateHourlyRate({ data: { rate: rate ? Number(rate) : null } }),
     onSuccess: () => {
       onRateSaved?.();
       toast.success("Hourly rate saved");
@@ -74,11 +74,11 @@ export function ProfileDossierEditor({
   const [skillYears, setSkillYears] = useState("");
   const createSkill = useMutation({
     mutationFn: () =>
-      addSkill(userId, {
+      addSkill({ data: {
         name: skillName.trim(),
         level: skillLevel,
         years: skillYears ? Number(skillYears) : null,
-      }),
+      } }),
     onSuccess: () => {
       setSkillName("");
       setSkillYears("");
@@ -103,13 +103,7 @@ export function ProfileDossierEditor({
   const [updateHeadline, setUpdateHeadline] = useState(true);
   const createJob = useMutation({
     mutationFn: async () => {
-      const payload = {
-        title: job.title.trim(),
-        company: job.company.trim(),
-        summary: job.summary.trim() || null,
-        is_current: current,
-      };
-      await addExperience(userId, {
+      await addExperience({ data: {
         title: job.title.trim(),
         company: job.company.trim(),
         location: job.location.trim() || null,
@@ -117,11 +111,15 @@ export function ProfileDossierEditor({
         end_date: job.end_date || null,
         is_current: current,
         summary: job.summary.trim() || null,
-      });
-      await announcePosition(userId, payload, {
+      } });
+      await announcePosition({ data: {
+        title: job.title.trim(),
+        company: job.company.trim(),
+        summary: job.summary.trim() || null,
+        is_current: current,
         share: shareJob,
         updateHeadline: current && updateHeadline,
-      });
+      } });
       return shareJob;
     },
     onSuccess: (shared) => {
@@ -146,13 +144,13 @@ export function ProfileDossierEditor({
   });
   const createSchool = useMutation({
     mutationFn: () =>
-      addEducation(userId, {
+      addEducation({ data: {
         school: school.school.trim(),
         qualification: school.qualification.trim() || null,
         field_of_study: school.field_of_study.trim() || null,
         start_year: school.start_year ? Number(school.start_year) : null,
         end_year: school.end_year ? Number(school.end_year) : null,
-      }),
+      } }),
     onSuccess: () => {
       setSchool({ school: "", qualification: "", field_of_study: "", start_year: "", end_year: "" });
       setOpenForm(null);
@@ -172,13 +170,13 @@ export function ProfileDossierEditor({
   });
   const createCert = useMutation({
     mutationFn: () =>
-      addCertification(userId, {
+      addCertification({ data: {
         name: cert.name.trim(),
         issuer: cert.issuer.trim(),
         issue_date: cert.issue_date || null,
         expiry_date: cert.expiry_date || null,
         credential_url: cert.credential_url.trim() || null,
-      }),
+      } }),
     onSuccess: () => {
       setCert({ name: "", issuer: "", issue_date: "", expiry_date: "", credential_url: "" });
       setOpenForm(null);
@@ -307,7 +305,7 @@ export function ProfileDossierEditor({
                     {row.location ? ` · ${row.location}` : ""}
                   </p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {monthYear(row.start_date)} —{" "}
+                    {monthYear(row.start_date)} -{" "}
                     {row.is_current ? "Present" : monthYear(row.end_date)}
                   </p>
                   {row.summary ? (
@@ -427,7 +425,7 @@ export function ProfileDossierEditor({
                   </p>
                   {row.start_year || row.end_year ? (
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      {row.start_year ?? "—"} — {row.end_year ?? "Present"}
+                      {row.start_year ?? "-"} - {row.end_year ?? "Present"}
                     </p>
                   ) : null}
                 </div>

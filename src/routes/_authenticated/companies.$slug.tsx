@@ -21,12 +21,12 @@ import {
 export const Route = createFileRoute("/_authenticated/companies/$slug")({
   head: () => ({
     meta: [
-      { title: "Company page — Afrixa" },
+      { title: "Company page - Afrixa" },
       {
         name: "description",
         content: "See a company's story, industry, location and every open role they are hiring for on Afrixa.",
       },
-      { property: "og:title", content: "Company page — Afrixa" },
+      { property: "og:title", content: "Company page - Afrixa" },
       { property: "og:description", content: "Company profile and open roles on Afrixa." },
       { property: "og:type", content: "profile" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -43,17 +43,17 @@ function CompanyPage() {
 
   const { data: company, isLoading } = useQuery({
     queryKey: ["company", slug],
-    queryFn: () => fetchCompanyBySlug(slug),
+    queryFn: () => fetchCompanyBySlug({ data: { slug } }),
   });
 
   const { data: jobs = [] } = useQuery({
     queryKey: ["company-jobs", company?.id],
     enabled: Boolean(company),
-    queryFn: () => fetchCompanyJobs(company as Company),
+    queryFn: () => fetchCompanyJobs({ data: { companyId: (company as Company).id, companyName: (company as Company).name } }),
   });
 
   const save = useMutation({
-    mutationFn: (input: CompanyInput) => updateCompany(company as Company, input),
+    mutationFn: (input: CompanyInput) => updateCompany({ data: { id: (company as Company).id, data: input } }),
     onSuccess: async (updated) => {
       toast.success("Company page updated");
       setEditing(false);
@@ -96,7 +96,7 @@ function CompanyPage() {
   return (
     <AppShell>
       <ScreenHeader title={company.name} back />
-      <main className="space-y-4 px-4">
+      <main className="mx-auto w-full max-w-[1060px] space-y-5 px-4 py-4 pb-8 md:px-8 md:py-6">
         {editing && user ? (
           <section className="rounded-2xl border border-border bg-card p-4 shadow-card">
             <h2 className="mb-3 text-sm font-semibold">Edit company page</h2>
@@ -112,11 +112,11 @@ function CompanyPage() {
           <>
             <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
               {company.cover_url ? (
-                <img src={company.cover_url} alt={`${company.name} cover`} className="h-32 w-full object-cover" />
+                <img src={company.cover_url} alt={`${company.name} cover`} className="h-40 w-full object-cover md:h-56" />
               ) : (
-                <div className="surface-hero h-32 w-full" />
+                <div className="surface-hero h-40 w-full md:h-56" />
               )}
-              <div className="p-4">
+              <div className="p-4 md:p-6">
                 <div className="flex items-start gap-3">
                   {company.logo_url ? (
                     <img
@@ -130,7 +130,7 @@ function CompanyPage() {
                     </span>
                   )}
                   <div className="min-w-0 flex-1">
-                    <h1 className="truncate text-base font-semibold">{company.name}</h1>
+                    <h1 className="truncate text-lg font-semibold md:text-2xl">{company.name}</h1>
                     {company.tagline ? (
                       <p className="mt-0.5 text-xs text-muted-foreground">{company.tagline}</p>
                     ) : null}
@@ -142,7 +142,7 @@ function CompanyPage() {
                   ) : null}
                 </div>
 
-                <ul className="mt-4 space-y-2 text-xs text-muted-foreground">
+                <ul className="mt-4 grid gap-2 text-xs text-muted-foreground md:grid-cols-2 md:text-sm">
                   {company.industry ? (
                     <li className="flex items-center gap-2">
                       <Buildings size={14} /> {company.industry}
@@ -173,8 +173,8 @@ function CompanyPage() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-border bg-card p-4 shadow-card">
-              <h2 className="text-sm font-semibold">About</h2>
+            <section className="rounded-2xl border border-border bg-card p-5 shadow-card md:p-6">
+              <h2 className="text-base font-semibold">About</h2>
               <p className="mt-2 whitespace-pre-line text-sm leading-relaxed text-muted-foreground">
                 {company.about ?? "This company has not added an about section yet."}
               </p>
@@ -192,7 +192,9 @@ function CompanyPage() {
                 ) : null}
               </div>
               {jobs.length ? (
-                jobs.map((job) => <OpportunityCard key={job.id} opportunity={job} />)
+                <div className="grid gap-3 md:grid-cols-2">
+                  {jobs.map((job) => <OpportunityCard key={job.id} opportunity={job} />)}
+                </div>
               ) : (
                 <p className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
                   No open roles from {company.name} right now.

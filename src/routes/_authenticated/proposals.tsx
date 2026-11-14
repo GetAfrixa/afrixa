@@ -25,12 +25,12 @@ export const Route = createFileRoute("/_authenticated/proposals")({
   },
   head: () => ({
     meta: [
-      { title: "Proposals received — Afrixa" },
+      { title: "Proposals received - Afrixa" },
       {
         name: "description",
         content: "Review proposals from Afrixa talent, compare bids and hire with escrow protection.",
       },
-      { property: "og:title", content: "Proposals received — Afrixa" },
+      { property: "og:title", content: "Proposals received - Afrixa" },
       { property: "og:description", content: "Compare Afrixa bids and hire talent with funds held in escrow." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -69,7 +69,7 @@ function ProposalsPage() {
         return;
       }
       setFunding(null);
-      toast.success(`Hired — ${money(result.amount, result.currency)} held in escrow`);
+      toast.success(`Hired - ${money(result.amount, result.currency)} held in escrow`);
       await queryClient.invalidateQueries({ queryKey: ["client-proposals"] });
       await queryClient.invalidateQueries({ queryKey: ["wallet-balance"] });
       await queryClient.invalidateQueries({ queryKey: ["wallet-escrows"] });
@@ -91,7 +91,7 @@ function ProposalsPage() {
   return (
     <AppShell>
       <ScreenHeader title="Proposals" subtitle="Talent applying to your postings" back />
-      <main className="space-y-3 px-4">
+      <main className="mx-auto grid w-full max-w-[1000px] gap-3 px-4 py-4 pb-8 md:grid-cols-2 md:px-8 md:py-6">
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading proposals…</p>
         ) : proposals.length ? (

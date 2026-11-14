@@ -8,15 +8,16 @@ import { AppShell, ScreenHeader } from "@/components/afrixa/AppShell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { supabase } from "@/integrations/supabase/client";
+import { uploadUserFile } from "@/lib/uploads";
+import { getLatestVerification, submitVerification } from "@/lib/workspace.functions";
 import { useAuth } from "@/hooks/useAuth";
 
 export const Route = createFileRoute("/_authenticated/verify")({
   head: () => ({
     meta: [
-      { title: "Verify your identity — Afrixa" },
+      { title: "Verify your identity - Afrixa" },
       { name: "description", content: "Verify your Afrixa account with your NIN or a government-issued ID." },
-      { property: "og:title", content: "Verify your identity — Afrixa" },
+      { property: "og:title", content: "Verify your identity - Afrixa" },
       { property: "og:description", content: "Get a verified badge with NIN, passport, driver's licence or CAC." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
@@ -36,11 +37,7 @@ const ID_TYPES = [
 const MAX = 10 * 1024 * 1024;
 
 async function uploadPrivate(userId: string, file: File) {
-  const ext = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
-  const path = `${userId}/${crypto.randomUUID()}.${ext}`;
-  const { error } = await supabase.storage.from("verifications").upload(path, file);
-  if (error) throw error;
-  return path;
+  return await uploadUserFile("verifications", userId, file);
 }
 
 function VerifyPage() {
@@ -56,17 +53,7 @@ function VerifyPage() {
   const { data: latest, isLoading } = useQuery({
     queryKey: ["verification", user?.id],
     enabled: Boolean(user?.id),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("identity_verifications")
-        .select("*")
-        .eq("user_id", user!.id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => getLatestVerification(),
   });
 
   const submit = useMutation({
@@ -80,18 +67,18 @@ function VerifyPage() {
       if (doc.size > MAX || (selfie && selfie.size > MAX)) throw new Error("Files must be 10MB or smaller.");
       const document_path = await uploadPrivate(user.id, doc);
       const selfie_path = selfie ? await uploadPrivate(user.id, selfie) : null;
-      const { error } = await supabase.from("identity_verifications").insert({
-        user_id: user.id,
-        id_type: idType,
-        id_number_last4: digits.slice(-4),
-        full_name: fullName.trim(),
-        document_path,
-        selfie_path,
+      await submitVerification({
+        data: {
+          idType,
+          idNumberLast4: digits.slice(-4),
+          fullName: fullName.trim(),
+          documentPath: document_path,
+          selfiePath: selfie_path,
+        },
       });
-      if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Submitted — we'll review your ID shortly.");
+      toast.success("Submitted - we'll review your ID shortly.");
       qc.invalidateQueries({ queryKey: ["verification"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -102,11 +89,11 @@ function VerifyPage() {
   return (
     <AppShell>
       <ScreenHeader title="Verify identity" subtitle="Earn a verified badge on your profile" />
-      <div className="space-y-4 px-4 pb-8">
+      <div className="mx-auto w-full max-w-2xl space-y-4 px-4 py-4 pb-8 md:px-8 md:py-6">
         {isLoading ? null : status === "approved" ? (
           <StatusCard icon={<SealCheck size={22} weight="fill" />} title="You're verified" text="Your verified badge shows on your profile and posts." />
         ) : status === "pending" ? (
-          <StatusCard icon={<Clock size={22} />} title="Under review" text={`Your ${ID_TYPES.find((t) => t.value === latest?.id_type)?.label ?? "ID"} ending ${latest?.id_number_last4} is being checked. This usually takes 1–2 business days.`} />
+          <StatusCard icon={<Clock size={22} />} title="Under review" text={`Your ${ID_TYPES.find((t) => t.value === latest?.id_type)?.label ?? "ID"} ending ${latest?.id_number_last4} is being checked. This usually takes 1-2 business days.`} />
         ) : (
           <>
             {status === "rejected" ? (

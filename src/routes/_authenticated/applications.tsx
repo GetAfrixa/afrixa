@@ -12,12 +12,12 @@ import { Button } from "@/components/ui/button";
 export const Route = createFileRoute("/_authenticated/applications")({
   head: () => ({
     meta: [
-      { title: "My applications — Afrixa" },
+      { title: "My applications - Afrixa" },
       {
         name: "description",
         content: "Track every Afrixa proposal you sent, see which clients hired you and move escrow work forward.",
       },
-      { property: "og:title", content: "My applications — Afrixa" },
+      { property: "og:title", content: "My applications - Afrixa" },
       {
         property: "og:description",
         content: "Proposal status, hires and escrow progress for African talent on Afrixa.",
@@ -30,9 +30,9 @@ export const Route = createFileRoute("/_authenticated/applications")({
 });
 
 const STAGE_LABEL: Record<string, string> = {
-  funded: "Escrow funded — start work",
+  funded: "Escrow funded - start work",
   in_progress: "In progress",
-  delivered: "Delivered — awaiting release",
+  delivered: "Delivered - awaiting release",
   released: "Payment released",
 };
 
@@ -59,7 +59,7 @@ function ApplicationsPage() {
   return (
     <AppShell>
       <ScreenHeader title="My applications" subtitle="Proposals, hires and escrow progress" back />
-      <main className="space-y-3 px-4">
+      <main className="mx-auto grid w-full max-w-[1000px] gap-3 px-4 py-4 pb-8 md:grid-cols-2 md:px-8 md:py-6">
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading applications…</p>
         ) : applications.length ? (

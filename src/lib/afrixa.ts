@@ -71,7 +71,7 @@ const SYMBOLS: Record<string, string> = {
 };
 
 export function money(amount: number | null | undefined, currency = "USD") {
-  if (amount === null || amount === undefined) return "—";
+  if (amount === null || amount === undefined) return "-";
   const symbol = SYMBOLS[currency] ?? `${currency} `;
   return `${symbol}${Math.round(amount).toLocaleString("en-US")}`;
 }
@@ -79,7 +79,7 @@ export function money(amount: number | null | undefined, currency = "USD") {
 export function budgetLabel(o: Opportunity) {
   if (o.price_from !== null) return `From ${money(o.price_from, o.currency)}`;
   if (o.budget_min !== null && o.budget_max !== null && o.budget_min !== o.budget_max)
-    return `${money(o.budget_min, o.currency)} – ${money(o.budget_max, o.currency)}`;
+    return `${money(o.budget_min, o.currency)} - ${money(o.budget_max, o.currency)}`;
   return money(o.budget_max ?? o.budget_min, o.currency);
 }
 

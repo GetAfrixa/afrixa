@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
+import { createPost } from "@/lib/workspace.functions";
 import { uploadUserFile } from "@/lib/uploads";
 import { initials } from "@/lib/afrixa";
 import { POST_KINDS, type PostKind, type PostVisibility } from "@/lib/social";
@@ -44,15 +44,15 @@ export function PostComposer() {
   const publish = useMutation({
     mutationFn: async () => {
       if (!user) throw new Error("Sign in to post");
-      const { error } = await supabase.from("posts").insert({
-        author_id: user.id,
-        body: body.trim(),
-        kind,
-        visibility,
-        image_url: imageUrl,
-        link_url: linkUrl.trim() || null,
+      await createPost({
+        data: {
+          body: body.trim(),
+          kind,
+          visibility,
+          imageUrl,
+          linkUrl: linkUrl.trim() || null,
+        },
       });
-      if (error) throw error;
     },
     onSuccess: () => {
       setBody("");
