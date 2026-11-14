@@ -1,16 +1,11 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireAuth } from "@/lib/pg-auth-middleware";
+import { sql } from "@/lib/db.server";
 
 export type MilestoneStatus =
-  | "planned"
-  | "funded"
-  | "in_progress"
-  | "submitted"
-  | "approved"
-  | "paid"
-  | "cancelled";
+  "planned" | "funded" | "in_progress" | "submitted" | "approved" | "paid" | "cancelled";
 
 export type Milestone = {
   id: string;
@@ -51,44 +46,33 @@ export type ContractSummary = {
   paid_total: number;
 };
 
-const MILESTONE_ROWS =
-  "id,contract_id,title,description,amount,currency,due_date,position,status,deliverable_note,deliverable_url,funded_at,started_at,submitted_at,approved_at,created_at";
-
 function num(value: unknown) {
   return Number(value ?? 0);
 }
 
-/** Contracts where the signed-in user is the client or the hired talent. */
 export const listMyContracts = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }): Promise<ContractSummary[]> => {
-    const { supabase, userId } = context;
+    const userId = context.userId;
+    const contracts = await sql<any[]>`
+      SELECT * FROM public.contracts
+      WHERE client_id = ${userId}::uuid OR talent_id = ${userId}::uuid
+      ORDER BY created_at DESC
+    `;
+    if (!contracts.length) return [];
 
-    const { data: contracts, error } = await supabase
-      .from("contracts")
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
-    if (!contracts?.length) return [];
+    const contractIds = contracts.map((c) => c.id);
+    const milestones = await sql<any[]>`
+      SELECT id,contract_id,title,description,amount,currency,due_date,position,status,deliverable_note,deliverable_url,funded_at,started_at,submitted_at,approved_at,created_at
+      FROM public.milestones
+      WHERE contract_id = ANY(${contractIds}::uuid[])
+      ORDER BY position ASC
+    `;
 
-    const { data: milestones, error: msError } = await supabase
-      .from("milestones")
-      .select(MILESTONE_ROWS)
-      .in(
-        "contract_id",
-        contracts.map((c) => c.id),
-      )
-      .order("position", { ascending: true });
-    if (msError) throw new Error(msError.message);
-
-    const otherIds = [
-      ...new Set(contracts.map((c) => (c.client_id === userId ? c.talent_id : c.client_id))),
-    ];
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: people } = await supabaseAdmin
-      .from("profiles")
-      .select("id,full_name,headline")
-      .in("id", otherIds);
+    const otherIds = [...new Set(contracts.map((c) => (c.client_id === userId ? c.talent_id : c.client_id)))];
+    const people = otherIds.length
+      ? await sql<any[]>`SELECT id, full_name, headline FROM public.profiles WHERE id = ANY(${otherIds}::uuid[])`
+      : [];
     const peopleMap = new Map((people ?? []).map((p) => [p.id, p]));
 
     return contracts.map((contract) => {
@@ -121,301 +105,175 @@ export const listMyContracts = createServerFn({ method: "GET" })
     });
   });
 
-/** Client creates a contract with the talent from an accepted proposal. */
 export const createContract = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input) =>
-    z
-      .object({
-        proposalId: z.string().uuid(),
-        title: z.string().trim().min(3).max(140),
-        description: z.string().trim().max(2000).optional(),
-      })
-      .parse(input),
+    z.object({
+      proposalId: z.string().uuid(),
+      title: z.string().trim().min(3).max(140),
+      description: z.string().trim().max(2000).optional(),
+    }).parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
-
-    const { data: proposal, error } = await supabase
-      .from("proposals")
-      .select("id,talent_id,opportunity_id,bid_amount,currency,escrow_id,status")
-      .eq("id", data.proposalId)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
+    const userId = context.userId;
+    const proposals = await sql<any[]>`
+      SELECT id,talent_id,opportunity_id,bid_amount,currency,escrow_id,status
+      FROM public.proposals WHERE id = ${data.proposalId}::uuid LIMIT 1
+    `;
+    const proposal = proposals[0];
     if (!proposal) throw new Error("Proposal not found");
 
-    const { data: opportunity } = await supabase
-      .from("opportunities")
-      .select("id,client_id,title")
-      .eq("id", proposal.opportunity_id)
-      .maybeSingle();
+    const opps = await sql<any[]>`
+      SELECT id,client_id,title FROM public.opportunities WHERE id = ${proposal.opportunity_id}::uuid LIMIT 1
+    `;
+    const opportunity = opps[0];
     if (!opportunity || opportunity.client_id !== userId) throw new Error("Forbidden");
 
-    const { data: existing } = await supabase
-      .from("contracts")
-      .select("id")
-      .eq("proposal_id", proposal.id)
-      .maybeSingle();
-    if (existing) return { id: existing.id, existing: true };
+    const existing = await sql<any[]>`
+      SELECT id FROM public.contracts WHERE proposal_id = ${proposal.id}::uuid LIMIT 1
+    `;
+    if (existing[0]) return { id: existing[0].id, existing: true };
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: created, error: insertError } = await supabaseAdmin
-      .from("contracts")
-      .insert({
-        client_id: userId,
-        talent_id: proposal.talent_id,
-        opportunity_id: proposal.opportunity_id,
-        proposal_id: proposal.id,
-        escrow_id: proposal.escrow_id,
-        title: data.title,
-        description: data.description ?? null,
-        total_amount: num(proposal.bid_amount),
-        currency: proposal.currency,
-      })
-      .select("id")
-      .single();
-    if (insertError) throw new Error(insertError.message);
+    const created = await sql<any[]>`
+      INSERT INTO public.contracts (client_id, talent_id, opportunity_id, proposal_id, escrow_id, title, description, total_amount, currency)
+      VALUES (${userId}::uuid, ${proposal.talent_id}::uuid, ${proposal.opportunity_id}::uuid, ${proposal.id}::uuid, ${proposal.escrow_id}::uuid, ${data.title}, ${data.description ?? null}, ${num(proposal.bid_amount)}, ${proposal.currency})
+      RETURNING id
+    `;
 
-    await supabaseAdmin.from("notifications").insert({
-      user_id: proposal.talent_id,
-      type: "contract",
-      title: "New contract created",
-      body: data.title,
-      link: "/contracts",
-    });
+    await sql`
+      INSERT INTO public.notifications (user_id, type, title, body, link)
+      VALUES (${proposal.talent_id}::uuid, 'contract', 'New contract created', ${data.title}, '/contracts')
+    `;
 
-    return { id: created.id, existing: false };
+    return { id: created[0].id, existing: false };
   });
 
-/** Client adds a milestone to their own contract. */
 export const addMilestone = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input) =>
-    z
-      .object({
-        contractId: z.string().uuid(),
-        title: z.string().trim().min(2).max(140),
-        description: z.string().trim().max(2000).optional(),
-        amount: z.number().positive().max(10_000_000),
-        dueDate: z.string().trim().optional(),
-      })
-      .parse(input),
+    z.object({
+      contractId: z.string().uuid(),
+      title: z.string().trim().min(2).max(140),
+      description: z.string().trim().max(2000).optional(),
+      amount: z.number().positive().max(10_000_000),
+      dueDate: z.string().trim().optional(),
+    }).parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
-
-    const { data: contract } = await supabase
-      .from("contracts")
-      .select("id,client_id,talent_id,currency,status")
-      .eq("id", data.contractId)
-      .maybeSingle();
+    const userId = context.userId;
+    const contracts = await sql<any[]>`
+      SELECT id,client_id,talent_id,currency,status FROM public.contracts WHERE id = ${data.contractId}::uuid LIMIT 1
+    `;
+    const contract = contracts[0];
     if (!contract || contract.client_id !== userId) throw new Error("Forbidden");
     if (contract.status !== "active") throw new Error("Contract is closed");
 
-    const { count } = await supabase
-      .from("milestones")
-      .select("id", { count: "exact", head: true })
-      .eq("contract_id", contract.id);
+    const counts = await sql<{ count: string }[]>`
+      SELECT count(*)::text AS count FROM public.milestones WHERE contract_id = ${contract.id}::uuid
+    `;
+    const count = Number(counts[0]?.count ?? 0);
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { error } = await supabaseAdmin.from("milestones").insert({
-      contract_id: contract.id,
-      title: data.title,
-      description: data.description ?? null,
-      amount: data.amount,
-      currency: contract.currency,
-      due_date: data.dueDate || null,
-      position: (count ?? 0) + 1,
-    });
-    if (error) throw new Error(error.message);
+    await sql`
+      INSERT INTO public.milestones (contract_id, title, description, amount, currency, due_date, position, status)
+      VALUES (${contract.id}::uuid, ${data.title}, ${data.description ?? null}, ${data.amount}, ${contract.currency}, ${data.dueDate || null}::date, ${count + 1}, 'planned')
+    `;
 
-    await supabaseAdmin.from("notifications").insert({
-      user_id: contract.talent_id,
-      type: "contract",
-      title: "Milestone added",
-      body: data.title,
-      link: "/contracts",
-    });
+    await sql`
+      INSERT INTO public.notifications (user_id, type, title, body, link)
+      VALUES (${contract.talent_id}::uuid, 'contract', 'New milestone added', ${data.title}, '/contracts')
+    `;
 
     return { ok: true };
   });
 
-/**
- * Milestone lifecycle. Funding debits the client's wallet, approval credits the
- * talent's wallet — both run with elevated rights because wallet balances are
- * protected from direct client writes.
- */
 export const advanceMilestone = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input) =>
-    z
-      .object({
-        milestoneId: z.string().uuid(),
-        action: z.enum(["fund", "start", "submit", "approve", "cancel"]),
-        note: z.string().trim().max(1000).optional(),
-        url: z.string().trim().max(500).optional(),
-      })
-      .parse(input),
+    z.object({
+      milestoneId: z.string().uuid(),
+      action: z.enum(["fund", "start", "submit", "approve", "cancel"]),
+      note: z.string().trim().max(2000).optional(),
+      url: z.string().url().max(500).optional(),
+    }).parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
+    const userId = context.userId;
 
-    const { data: milestone, error } = await supabase
-      .from("milestones")
-      .select("id,contract_id,title,amount,currency,status")
-      .eq("id", data.milestoneId)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
+    const milestoneRows = await sql<any[]>`
+      SELECT * FROM public.milestones WHERE id = ${data.milestoneId}::uuid LIMIT 1
+    `;
+    const milestone = milestoneRows[0];
     if (!milestone) throw new Error("Milestone not found");
 
-    const { data: contract } = await supabase
-      .from("contracts")
-      .select("id,client_id,talent_id,title,currency")
-      .eq("id", milestone.contract_id)
-      .maybeSingle();
+    const contractRows = await sql<any[]>`
+      SELECT id,client_id,talent_id,status FROM public.contracts WHERE id = ${milestone.contract_id}::uuid LIMIT 1
+    `;
+    const contract = contractRows[0];
     if (!contract) throw new Error("Contract not found");
 
     const isClient = contract.client_id === userId;
     const isTalent = contract.talent_id === userId;
     if (!isClient && !isTalent) throw new Error("Forbidden");
 
-    const amount = num(milestone.amount);
     const now = new Date().toISOString();
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { creditWallet, debitWallet } = await import("@/lib/payments.server");
+    const { rpc } = await import("@/lib/rpc");
+
+    const advance = async (from: string[], to: string, patch: Record<string, unknown>) => {
+      const fields: string[] = ["status = $2"];
+      const values: unknown[] = [milestone.id, to];
+      let i = 3;
+      for (const [k, v] of Object.entries(patch)) {
+        fields.push(`${k} = $${i++}`);
+        values.push(v);
+      }
+      values.push(from);
+      const query = `UPDATE public.milestones SET ${fields.join(", ")} WHERE id = $1::uuid AND status = ANY($${i}::text[]) RETURNING id`;
+      const updated = await sql.unsafe(query, values as any[]);
+      return updated.length > 0;
+    };
 
     if (data.action === "fund") {
       if (!isClient) throw new Error("Only the client can fund a milestone");
-      if (milestone.status !== "planned") throw new Error("Milestone is already funded");
-      await debitWallet(contract.client_id, amount);
-      await supabaseAdmin.from("transactions").insert({
-        user_id: contract.client_id,
-        type: "debit",
-        amount,
-        currency: milestone.currency,
-        description: `Milestone funded — ${milestone.title}`,
+      const status = await rpc<string>("fund_milestone", {
+        p_milestone_id: milestone.id,
+        p_actor_id: userId,
       });
-      await supabaseAdmin
-        .from("milestones")
-        .update({ status: "funded", funded_at: now })
-        .eq("id", milestone.id);
-      await supabaseAdmin.from("notifications").insert({
-        user_id: contract.talent_id,
-        type: "contract",
-        title: "Milestone funded — you can start",
-        body: `${milestone.currency} ${amount.toLocaleString()} — ${milestone.title}`,
-        link: "/contracts",
-      });
-      return { status: "funded" };
+      return { status };
     }
 
     if (data.action === "start") {
       if (!isTalent) throw new Error("Only the freelancer can start work");
-      if (milestone.status !== "funded") throw new Error("Milestone must be funded first");
-      await supabaseAdmin
-        .from("milestones")
-        .update({ status: "in_progress", started_at: now })
-        .eq("id", milestone.id);
-      await supabaseAdmin.from("notifications").insert({
-        user_id: contract.client_id,
-        type: "contract",
-        title: "Work started on a milestone",
-        body: milestone.title,
-        link: "/contracts",
-      });
+      const ok = await advance(["funded"], "in_progress", { started_at: now });
+      if (!ok) throw new Error("Milestone must be funded first");
+      await sql`INSERT INTO public.notifications (user_id, type, title, body, link) VALUES (${contract.client_id}::uuid, 'contract', 'Work started on a milestone', ${milestone.title}, '/contracts')`;
       return { status: "in_progress" };
     }
 
     if (data.action === "submit") {
       if (!isTalent) throw new Error("Only the freelancer can submit work");
-      if (!["funded", "in_progress"].includes(milestone.status))
-        throw new Error("Milestone must be funded before submitting");
-      await supabaseAdmin
-        .from("milestones")
-        .update({
-          status: "submitted",
-          submitted_at: now,
-          deliverable_note: data.note ?? null,
-          deliverable_url: data.url || null,
-        })
-        .eq("id", milestone.id);
-      await supabaseAdmin.from("notifications").insert({
-        user_id: contract.client_id,
-        type: "contract",
-        title: "Milestone submitted — review and approve",
-        body: milestone.title,
-        link: "/contracts",
+      const ok = await advance(["funded", "in_progress"], "submitted", {
+        submitted_at: now,
+        deliverable_note: data.note ?? null,
+        deliverable_url: data.url || null,
       });
+      if (!ok) throw new Error("Milestone must be funded before submitting");
+      await sql`INSERT INTO public.notifications (user_id, type, title, body, link) VALUES (${contract.client_id}::uuid, 'contract', 'Milestone submitted - review work', ${milestone.title}, '/contracts')`;
       return { status: "submitted" };
     }
 
     if (data.action === "cancel") {
       if (!isClient) throw new Error("Only the client can cancel a milestone");
-      if (milestone.status === "paid") throw new Error("Paid milestones cannot be cancelled");
-      if (["funded", "in_progress", "submitted"].includes(milestone.status)) {
-        await creditWallet(contract.client_id, amount);
-        await supabaseAdmin.from("transactions").insert({
-          user_id: contract.client_id,
-          type: "credit",
-          amount,
-          currency: milestone.currency,
-          description: `Milestone refunded — ${milestone.title}`,
-        });
-      }
-      await supabaseAdmin.from("milestones").update({ status: "cancelled" }).eq("id", milestone.id);
-      await supabaseAdmin.from("notifications").insert({
-        user_id: contract.talent_id,
-        type: "contract",
-        title: "Milestone cancelled",
-        body: milestone.title,
-        link: "/contracts",
+      const status = await rpc<string>("cancel_milestone", {
+        p_milestone_id: milestone.id,
+        p_actor_id: userId,
       });
-      return { status: "cancelled" };
+      return { status };
     }
 
     if (!isClient) throw new Error("Only the client can approve work");
-    if (milestone.status !== "submitted") throw new Error("Approve after the work is submitted");
-
-    await supabaseAdmin
-      .from("milestones")
-      .update({ status: "paid", approved_at: now })
-      .eq("id", milestone.id);
-
-    await creditWallet(contract.talent_id, amount);
-    const { data: talentProfile } = await supabaseAdmin
-      .from("profiles")
-      .select("total_earned")
-      .eq("id", contract.talent_id)
-      .maybeSingle();
-    await supabaseAdmin
-      .from("profiles")
-      .update({ total_earned: num(talentProfile?.total_earned) + amount })
-      .eq("id", contract.talent_id);
-
-    await supabaseAdmin.from("transactions").insert({
-      user_id: contract.talent_id,
-      type: "credit",
-      amount,
-      currency: milestone.currency,
-      description: `Milestone approved — ${milestone.title}`,
+    const status = await rpc<string>("approve_milestone", {
+      p_milestone_id: milestone.id,
+      p_actor_id: userId,
     });
-    await supabaseAdmin.from("notifications").insert({
-      user_id: contract.talent_id,
-      type: "contract",
-      title: "Milestone approved — funds released",
-      body: `${milestone.currency} ${amount.toLocaleString()} — ${milestone.title}`,
-      link: "/wallet",
-    });
-
-    // Close the contract once every live milestone is paid.
-    const { data: remaining } = await supabaseAdmin
-      .from("milestones")
-      .select("id,status")
-      .eq("contract_id", contract.id);
-    const live = (remaining ?? []).filter((m) => m.status !== "cancelled");
-    if (live.length > 0 && live.every((m) => m.status === "paid")) {
-      await supabaseAdmin.from("contracts").update({ status: "completed" }).eq("id", contract.id);
-    }
-
-    return { status: "paid" };
+    return { status };
   });

@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
+import { requireAuth } from "@/lib/pg-auth-middleware";
+import { sql } from "@/lib/db.server";
 
 export type ClientProposal = {
   id: string;
@@ -24,37 +25,30 @@ export type ClientProposal = {
   years_experience: string | null;
 };
 
-/** Proposals submitted to the signed-in client's own postings. */
 export const listClientProposals = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }): Promise<ClientProposal[]> => {
-    const { supabase, userId } = context;
-
-    const { data: opportunities, error: oppError } = await supabase
-      .from("opportunities")
-      .select("id,title")
-      .eq("client_id", userId);
-    if (oppError) throw new Error(oppError.message);
-    if (!opportunities?.length) return [];
-
+    const userId = context.userId;
+    const opportunities = await sql<any[]>`
+      SELECT id, title FROM public.opportunities WHERE client_id = ${userId}::uuid
+    `;
+    if (!opportunities.length) return [];
     const titles = new Map(opportunities.map((o) => [o.id, o.title]));
+    const oppIds = opportunities.map((o) => o.id);
 
-    const { data: proposals, error } = await supabase
-      .from("proposals")
-      .select(
-        "id,status,cover_letter,bid_amount,currency,delivery_days,created_at,escrow_id,opportunity_id,talent_id,resume_url,resume_name,portfolio_urls,years_experience",
-      )
-      .in("opportunity_id", [...titles.keys()])
-      .order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
-    if (!proposals?.length) return [];
+    const proposals = await sql<any[]>`
+      SELECT id,status,cover_letter,bid_amount,currency,delivery_days,created_at,escrow_id,opportunity_id,talent_id,resume_url,resume_name,portfolio_urls,years_experience
+      FROM public.proposals
+      WHERE opportunity_id = ANY(${oppIds}::uuid[])
+      ORDER BY created_at DESC
+    `;
+    if (!proposals.length) return [];
 
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
-    const { data: talents } = await supabaseAdmin
-      .from("profiles")
-      .select("id,full_name,headline,country")
-      .in("id", [...new Set(proposals.map((p) => p.talent_id))]);
-    const talentMap = new Map((talents ?? []).map((t) => [t.id, t]));
+    const talentIds = [...new Set(proposals.map((p) => p.talent_id))];
+    const talents = await sql<any[]>`
+      SELECT id,full_name,headline,country FROM public.profiles WHERE id = ANY(${talentIds}::uuid[])
+    `;
+    const talentMap = new Map(talents.map((t) => [t.id, t]));
 
     return proposals.map((p) => {
       const talent = talentMap.get(p.talent_id);
@@ -69,38 +63,44 @@ export const listClientProposals = createServerFn({ method: "GET" })
     });
   });
 
-// Hiring is funded through a real payment gateway — see `fundHire` in
-// src/lib/payments.functions.ts. Escrows are never created without a
-// confirmed payment or a wallet debit.
-
-/** Client declines a proposal. */
 export const declineProposal = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input) => z.object({ proposalId: z.string().uuid() }).parse(input))
   .handler(async ({ data, context }) => {
-    const { error } = await context.supabase
-      .from("proposals")
-      .update({ status: "declined" })
-      .eq("id", data.proposalId);
-    if (error) throw new Error(error.message);
+    const userId = context.userId;
+    const proposals = await sql<any[]>`
+      SELECT id,status,opportunity_id FROM public.proposals WHERE id = ${data.proposalId}::uuid LIMIT 1
+    `;
+    const proposal = proposals[0];
+    if (!proposal) throw new Error("Proposal not found");
+
+    const opps = await sql<any[]>`
+      SELECT id,client_id FROM public.opportunities WHERE id = ${proposal.opportunity_id}::uuid LIMIT 1
+    `;
+    const opportunity = opps[0];
+    if (!opportunity || opportunity.client_id !== userId) throw new Error("Forbidden");
+    if (proposal.status === "accepted") throw new Error("Accepted proposals cannot be declined");
+    if (proposal.status === "declined") return { ok: true };
+
+    await sql`
+      UPDATE public.proposals SET status = 'declined'
+      WHERE id = ${data.proposalId}::uuid AND status = 'submitted'
+    `;
     return { ok: true };
   });
 
-/** Escrow lifecycle: talent starts and delivers, client releases. */
 export const advanceEscrow = createServerFn({ method: "POST" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .inputValidator((input) =>
     z.object({ escrowId: z.string().uuid(), action: z.enum(["start", "deliver", "release"]) }).parse(input),
   )
   .handler(async ({ data, context }) => {
-    const { supabase, userId } = context;
-
-    const { data: escrow, error } = await supabase
-      .from("escrows")
-      .select("id,status,amount,currency,title,client_id,talent_id,opportunity_id")
-      .eq("id", data.escrowId)
-      .maybeSingle();
-    if (error) throw new Error(error.message);
+    const userId = context.userId;
+    const rows = await sql<any[]>`
+      SELECT id,status,amount,currency,title,client_id,talent_id,opportunity_id
+      FROM public.escrows WHERE id = ${data.escrowId}::uuid LIMIT 1
+    `;
+    const escrow = rows[0];
     if (!escrow) throw new Error("Escrow not found");
 
     const isTalent = escrow.talent_id === userId;
@@ -108,79 +108,46 @@ export const advanceEscrow = createServerFn({ method: "POST" })
     if (!isTalent && !isClient) throw new Error("Forbidden");
 
     const now = new Date().toISOString();
-    const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+
+    const advance = async (from: string[], to: string, patch: Record<string, unknown>) => {
+      const fields: string[] = ["status = $2"];
+      const values: unknown[] = [escrow.id, to];
+      let i = 3;
+      for (const [k, v] of Object.entries(patch)) {
+        fields.push(`${k} = $${i++}`);
+        values.push(v);
+      }
+      values.push(from);
+      const q = `UPDATE public.escrows SET ${fields.join(", ")} WHERE id = $1::uuid AND status = ANY($${i}::text[]) RETURNING id`;
+      const updated = await sql.unsafe(q, values as any[]);
+      return updated.length > 0;
+    };
 
     if (data.action === "start") {
       if (!isTalent) throw new Error("Only the talent can start work");
-      if (escrow.status !== "funded") throw new Error("Escrow is not ready to start");
-      await supabaseAdmin.from("escrows").update({ status: "in_progress", started_at: now }).eq("id", escrow.id);
-      await supabaseAdmin.from("notifications").insert({
-        user_id: escrow.client_id!,
-        type: "escrow",
-        title: "Work started",
-        body: escrow.title,
-        link: "/wallet",
-      });
+      const ok = await advance(["funded"], "in_progress", { started_at: now });
+      if (!ok) throw new Error("Escrow is not ready to start");
+      await sql`INSERT INTO public.notifications (user_id, type, title, body, link) VALUES (${escrow.client_id}::uuid, 'escrow', 'Work started', ${escrow.title}, '/wallet')`;
       return { status: "in_progress" };
     }
 
     if (data.action === "deliver") {
       if (!isTalent) throw new Error("Only the talent can deliver");
-      if (!["funded", "in_progress"].includes(escrow.status)) throw new Error("Escrow cannot be delivered");
-      await supabaseAdmin.from("escrows").update({ status: "delivered", delivered_at: now }).eq("id", escrow.id);
-      await supabaseAdmin.from("notifications").insert({
-        user_id: escrow.client_id!,
-        type: "escrow",
-        title: "Work delivered — review and release",
-        body: escrow.title,
-        link: "/wallet",
-      });
+      const ok = await advance(["funded", "in_progress"], "delivered", { delivered_at: now });
+      if (!ok) throw new Error("Escrow cannot be delivered");
+      await sql`INSERT INTO public.notifications (user_id, type, title, body, link) VALUES (${escrow.client_id}::uuid, 'escrow', 'Work delivered - review and release', ${escrow.title}, '/wallet')`;
       return { status: "delivered" };
     }
 
     if (!isClient) throw new Error("Only the client can release funds");
-    if (escrow.status === "released") throw new Error("Escrow already released");
-    if (escrow.status !== "delivered") throw new Error("Release is available after delivery");
+    if (escrow.status === "released") return { status: "released" };
 
-    const amount = Number(escrow.amount);
-    await supabaseAdmin.from("escrows").update({ status: "released", released_at: now }).eq("id", escrow.id);
-    if (escrow.opportunity_id) {
-      await supabaseAdmin
-        .from("opportunities")
-        .update({ status: "completed" })
-        .eq("id", escrow.opportunity_id);
-    }
-    await supabaseAdmin.from("transactions").insert({
-      user_id: escrow.talent_id!,
-      type: "credit",
-      amount,
-      currency: escrow.currency,
-      description: `Escrow released — ${escrow.title}`,
+    const { rpc } = await import("@/lib/rpc");
+    const status = await rpc<string>("release_escrow", {
+      p_escrow_id: escrow.id,
+      p_actor_id: userId,
     });
-
-    // Released escrow money lands in the talent's withdrawable wallet balance.
-    const { data: talentProfile } = await supabaseAdmin
-      .from("profiles")
-      .select("total_earned,wallet_balance")
-      .eq("id", escrow.talent_id!)
-      .maybeSingle();
-    await supabaseAdmin
-      .from("profiles")
-      .update({
-        total_earned: Number(talentProfile?.total_earned ?? 0) + amount,
-        wallet_balance: Number(talentProfile?.wallet_balance ?? 0) + amount,
-      })
-      .eq("id", escrow.talent_id!);
-
-    await supabaseAdmin.from("notifications").insert({
-      user_id: escrow.talent_id!,
-      type: "escrow",
-      title: "Funds released",
-      body: `${escrow.currency} ${amount.toLocaleString()} — ${escrow.title}`,
-      link: "/wallet",
-    });
-
-    return { status: "released" };
+    return { status };
   });
 
 export type TalentApplication = {
@@ -197,31 +164,27 @@ export type TalentApplication = {
   escrow_status: string | null;
 };
 
-/** Applications the signed-in talent has sent, with escrow stage when hired. */
 export const listTalentApplications = createServerFn({ method: "GET" })
-  .middleware([requireSupabaseAuth])
+  .middleware([requireAuth])
   .handler(async ({ context }): Promise<TalentApplication[]> => {
-    const { supabase, userId } = context;
+    const userId = context.userId;
+    const proposals = await sql<any[]>`
+      SELECT id,status,bid_amount,currency,delivery_days,created_at,opportunity_id,escrow_id
+      FROM public.proposals WHERE talent_id = ${userId}::uuid ORDER BY created_at DESC
+    `;
+    if (!proposals.length) return [];
 
-    const { data: proposals, error } = await supabase
-      .from("proposals")
-      .select("id,status,bid_amount,currency,delivery_days,created_at,opportunity_id,escrow_id")
-      .eq("talent_id", userId)
-      .order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
-    if (!proposals?.length) return [];
-
-    const { data: opportunities } = await supabase
-      .from("opportunities")
-      .select("id,title,company")
-      .in("id", [...new Set(proposals.map((p) => p.opportunity_id))]);
-    const oppMap = new Map((opportunities ?? []).map((o) => [o.id, o]));
+    const oppIds = [...new Set(proposals.map((p) => p.opportunity_id))];
+    const opportunities = await sql<any[]>`
+      SELECT id,title,company FROM public.opportunities WHERE id = ANY(${oppIds}::uuid[])
+    `;
+    const oppMap = new Map(opportunities.map((o) => [o.id, o]));
 
     const escrowIds = proposals.map((p) => p.escrow_id).filter((id): id is string => Boolean(id));
     const escrowMap = new Map<string, string>();
     if (escrowIds.length) {
-      const { data: escrows } = await supabase.from("escrows").select("id,status").in("id", escrowIds);
-      for (const escrow of escrows ?? []) escrowMap.set(escrow.id, escrow.status);
+      const escrows = await sql<any[]>`SELECT id,status FROM public.escrows WHERE id = ANY(${escrowIds}::uuid[])`;
+      for (const escrow of escrows) escrowMap.set(escrow.id, escrow.status);
     }
 
     return proposals.map((p) => ({

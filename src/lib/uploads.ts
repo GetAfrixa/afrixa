@@ -1,26 +1,24 @@
-import { supabase } from "@/integrations/supabase/client";
+import { uploadUserFile as uploadUserFileFn } from "@/lib/uploads.functions";
 
-const YEAR_SECONDS = 60 * 60 * 24 * 365;
-
-function safeName(file: File) {
-  const ext = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
-  return `${crypto.randomUUID()}.${ext}`;
+async function fileToBase64(file: File): Promise<string> {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]!);
+  return btoa(binary);
 }
 
-/** Uploads a file into the user's own folder and returns a long-lived signed URL. */
+/** Uploads a file into the user's own folder and returns a served URL/path. */
 export async function uploadUserFile(
-  bucket: "avatars" | "portfolio",
+  bucket: "avatars" | "portfolio" | "chat-attachments" | "verifications",
   userId: string,
   file: File,
 ): Promise<string> {
-  const path = `${userId}/${safeName(file)}`;
-  const { error } = await supabase.storage.from(bucket).upload(path, file, {
-    cacheControl: "3600",
-    upsert: true,
+  // userId kept for API compatibility; server enforces auth identity.
+  void userId;
+  const dataBase64 = await fileToBase64(file);
+  const res = await uploadUserFileFn({
+    data: { bucket, fileName: file.name, contentType: file.type, dataBase64 },
   });
-  if (error) throw error;
-
-  const { data, error: signError } = await supabase.storage.from(bucket).createSignedUrl(path, YEAR_SECONDS);
-  if (signError || !data?.signedUrl) throw signError ?? new Error("Could not create file URL");
-  return data.signedUrl;
+  return res.url;
 }

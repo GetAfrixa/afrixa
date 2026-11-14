@@ -1,5 +1,9 @@
-import { supabase } from "@/integrations/supabase/client";
+import { createServerFn } from "@tanstack/react-start";
+import { z } from "zod";
+
 import type { Opportunity } from "@/lib/afrixa";
+import { sql } from "@/lib/db.server";
+import { requireAuth } from "@/lib/pg-auth-middleware";
 import { skillPercent } from "@/lib/profile.data";
 
 export type TalentSignals = {
@@ -45,43 +49,44 @@ function tokens(value: string) {
 }
 
 /** Everything we know about the signed-in talent that can be matched to a gig. */
-export async function fetchTalentSignals(userId: string): Promise<TalentSignals> {
-  const [skills, experience, portfolio, profile] = await Promise.all([
-    supabase.from("profile_skills").select("name,level,years").eq("user_id", userId),
-    supabase.from("work_experiences").select("title,company,summary").eq("user_id", userId),
-    supabase.from("portfolio_items").select("category,title").eq("user_id", userId),
-    supabase.from("profiles").select("primary_skill").eq("id", userId).maybeSingle(),
-  ]);
+export const fetchTalentSignals = createServerFn({ method: "GET" })
+  .middleware([requireAuth])
+  .handler(async ({ context }): Promise<TalentSignals> => {
+    const userId = context.userId;
+    const [skills, experience, portfolio, profile] = await Promise.all([
+      sql<any[]>`SELECT name,level,years FROM public.profile_skills WHERE user_id = ${userId}::uuid`,
+      sql<any[]>`SELECT title,company,summary FROM public.work_experiences WHERE user_id = ${userId}::uuid`,
+      sql<any[]>`SELECT category,title FROM public.portfolio_items WHERE user_id = ${userId}::uuid`,
+      sql<any[]>`SELECT primary_skill FROM public.profiles WHERE id = ${userId}::uuid LIMIT 1`,
+    ]);
 
-  const firstError = skills.error ?? experience.error ?? portfolio.error ?? profile.error ?? null;
-  if (firstError) throw new Error(firstError.message);
+    return {
+      skills: skills.map((row) => ({
+        name: row.name,
+        level: row.level,
+        years: row.years ? Number(row.years) : null,
+      })),
+      experienceText: experience.map((row) =>
+        [row.title, row.company, row.summary].filter(Boolean).join(" "),
+      ),
+      portfolioCategories: portfolio
+        .map((row) => [row.category, row.title].filter(Boolean).join(" "))
+        .filter(Boolean) as string[],
+      primarySkill: profile[0]?.primary_skill ?? null,
+    };
+  });
 
-  return {
-    skills: (skills.data ?? []).map((row) => ({
-      name: row.name,
-      level: row.level,
-      years: row.years ? Number(row.years) : null,
-    })),
-    experienceText: (experience.data ?? []).map((row) =>
-      [row.title, row.company, row.summary].filter(Boolean).join(" "),
-    ),
-    portfolioCategories: (portfolio.data ?? [])
-      .map((row) => [row.category, row.title].filter(Boolean).join(" "))
-      .filter(Boolean) as string[],
-    primarySkill: profile.data?.primary_skill ?? null,
-  };
-}
-
-export async function fetchOpenGigs(limit = 60): Promise<Opportunity[]> {
-  const { data, error } = await supabase
-    .from("opportunities")
-    .select("*")
-    .eq("status", "open")
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  if (error) throw new Error(error.message);
-  return (data ?? []) as Opportunity[];
-}
+export const fetchOpenGigs = createServerFn({ method: "GET" })
+  .inputValidator((input) => z.object({ limit: z.number().int().min(1).max(200).optional() }).parse(input ?? {}))
+  .handler(async ({ data }): Promise<Opportunity[]> => {
+    const limit = data.limit ?? 60;
+    return await sql<Opportunity[]>`
+      SELECT * FROM public.opportunities
+      WHERE status = 'open'
+      ORDER BY created_at DESC
+      LIMIT ${limit}
+    `;
+  });
 
 /** Ranks gigs against a talent's skills, experience and portfolio. */
 export function rankGigs(gigs: Opportunity[], signals: TalentSignals): RecommendedGig[] {

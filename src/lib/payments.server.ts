@@ -1,35 +1,44 @@
 /**
  * Server-only payment gateway helpers for Paystack and Flutterwave.
  * Never import this from client-reachable modules; load it inside handlers.
+ *
+ * Settlement is idempotent at the database level: the ledger transaction is
+ * keyed on the payment reference, so a retried webhook cannot credit twice.
  */
-import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { sql } from "@/lib/db.server";
+import { rpc } from "@/lib/rpc";
 
 export type Provider = "paystack" | "flutterwave";
 
-/** Gateways charge in the smallest unit (kobo/cents) for Paystack. */
-const ZERO_DECIMAL = new Set(["JPY", "KRW"]);
-
-export function providerLabel(provider: Provider) {
-  return provider === "paystack" ? "Paystack" : "Flutterwave";
-}
-
-function requireEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) throw new Error(`${name} is not configured. Add the gateway key in project secrets.`);
+function requireEnv(key: string) {
+  const value = process.env[key];
+  if (!value) throw new Error(`Missing environment variable: ${key}`);
   return value;
 }
 
-export function newReference(prefix: string) {
-  return `afx_${prefix}_${crypto.randomUUID().replaceAll("-", "").slice(0, 18)}`;
-}
-
 async function readError(response: Response, provider: Provider) {
-  const body = await response.text();
-  console.error(`[${provider}] request failed [${response.status}]: ${body}`);
-  return new Error(`${providerLabel(provider)} request failed [${response.status}]: ${body}`);
+  try {
+    const payload = (await response.json()) as { message?: string; data?: { message?: string } };
+    return new Error(
+      `${provider} error: ${payload.message || payload.data?.message || response.statusText}`,
+    );
+  } catch {
+    return new Error(`${provider} error: ${response.statusText}`);
+  }
 }
 
-/** Creates a hosted checkout session and returns the URL the client must open. */
+function randomSuffix() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID().split("-")[0];
+  }
+  return Math.random().toString(36).slice(2, 10);
+}
+
+export function newReference(prefix: "top" | "esc") {
+  const ts = Date.now().toString(36).toUpperCase();
+  return `AFR-${prefix.toUpperCase()}-${ts}-${randomSuffix()}`.toUpperCase();
+}
+
 export async function initializeCheckout(input: {
   provider: Provider;
   reference: string;
@@ -38,11 +47,10 @@ export async function initializeCheckout(input: {
   email: string;
   callbackUrl: string;
   description: string;
-}): Promise<string> {
+}) {
   const { provider, reference, amount, currency, email, callbackUrl, description } = input;
 
   if (provider === "paystack") {
-    const multiplier = ZERO_DECIMAL.has(currency) ? 1 : 100;
     const response = await fetch("https://api.paystack.co/transaction/initialize", {
       method: "POST",
       headers: {
@@ -51,7 +59,7 @@ export async function initializeCheckout(input: {
       },
       body: JSON.stringify({
         email,
-        amount: Math.round(amount * multiplier),
+        amount: Math.round(amount * 100),
         currency,
         reference,
         callback_url: callbackUrl,
@@ -65,7 +73,9 @@ export async function initializeCheckout(input: {
       data?: { authorization_url?: string };
     };
     if (!payload.status || !payload.data?.authorization_url) {
-      throw new Error(`Paystack could not start the payment: ${payload.message ?? "unknown error"}`);
+      throw new Error(
+        `Paystack could not start the payment: ${payload.message ?? "unknown error"}`,
+      );
     }
     return payload.data.authorization_url;
   }
@@ -82,13 +92,19 @@ export async function initializeCheckout(input: {
       currency,
       redirect_url: callbackUrl,
       customer: { email },
-      customizations: { title: "Afrixa escrow", description },
+      customizations: { title: "Afrixa", description },
     }),
   });
   if (!response.ok) throw await readError(response, provider);
-  const payload = (await response.json()) as { status?: string; message?: string; data?: { link?: string } };
+  const payload = (await response.json()) as {
+    status?: string;
+    message?: string;
+    data?: { link?: string };
+  };
   if (payload.status !== "success" || !payload.data?.link) {
-    throw new Error(`Flutterwave could not start the payment: ${payload.message ?? "unknown error"}`);
+    throw new Error(
+      `Flutterwave could not start the payment: ${payload.message ?? "unknown error"}`,
+    );
   }
   return payload.data.link;
 }
@@ -100,22 +116,29 @@ export type VerifiedPayment = {
   currency: string;
 };
 
-/** Server-side confirmation with the gateway — the only trusted source of payment status. */
-export async function verifyPayment(provider: Provider, reference: string): Promise<VerifiedPayment> {
+export async function verifyPayment(
+  provider: Provider,
+  reference: string,
+): Promise<VerifiedPayment> {
   if (provider === "paystack") {
-    const response = await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`, {
-      headers: { Authorization: `Bearer ${requireEnv("PAYSTACK_SECRET_KEY")}` },
-    });
+    const response = await fetch(
+      `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+      { headers: { Authorization: `Bearer ${requireEnv("PAYSTACK_SECRET_KEY")}` } },
+    );
     if (!response.ok) throw await readError(response, provider);
     const payload = (await response.json()) as {
       data?: { status?: string; amount?: number; currency?: string; reference?: string };
     };
+    const divisor = 100;
     const currency = payload.data?.currency ?? "NGN";
-    const divisor = ZERO_DECIMAL.has(currency) ? 1 : 100;
     return {
       reference: payload.data?.reference ?? reference,
       status:
-        payload.data?.status === "success" ? "success" : payload.data?.status === "failed" ? "failed" : "pending",
+        payload.data?.status === "success"
+          ? "success"
+          : payload.data?.status === "failed"
+            ? "failed"
+            : "pending",
       amount: Number(payload.data?.amount ?? 0) / divisor,
       currency,
     };
@@ -147,166 +170,56 @@ type PaymentRow = {
   currency: string;
   proposal_id: string | null;
   provider: string;
+  escrow_id: string | null;
 };
 
-/**
- * Idempotently settles a payment: tops up a wallet, or funds the escrow for a
- * hire. Safe to call from both the webhook and the browser callback.
- */
-export async function settlePayment(reference: string): Promise<{ status: string; escrowId?: string }> {
-  const { data: payment } = await supabaseAdmin
-    .from("payments")
-    .select("id,user_id,purpose,status,amount,currency,proposal_id,provider")
-    .eq("reference", reference)
-    .maybeSingle<PaymentRow>();
+export async function settlePayment(
+  reference: string,
+): Promise<{ status: string; escrowId?: string }> {
+  const rows = await sql<PaymentRow[]>`
+    SELECT id, user_id, purpose, status, amount, currency, proposal_id, provider, escrow_id
+    FROM public.payments WHERE reference = ${reference} LIMIT 1
+  `;
+  const payment = rows[0];
+
   if (!payment) throw new Error("Unknown payment reference");
-  if (payment.status === "paid") return { status: "paid" };
+  if (payment.status === "paid") {
+    return {
+      status: "paid",
+      ...(payment.escrow_id ? { escrowId: payment.escrow_id } : {}),
+    };
+  }
+  if (payment.status === "failed") return { status: "failed" };
 
   const verified = await verifyPayment(payment.provider as Provider, reference);
+
   if (verified.status !== "success") {
     if (verified.status === "failed") {
-      await supabaseAdmin.from("payments").update({ status: "failed" }).eq("id", payment.id);
+      await sql`UPDATE public.payments SET status = 'failed', updated_at = now() WHERE id = ${payment.id}::uuid`;
     }
     return { status: verified.status };
   }
 
+  const paid = Number(verified.amount);
+  const expected = Number(payment.amount);
+  if (
+    !Number.isFinite(paid) ||
+    Math.abs(paid - expected) > 0.01 ||
+    verified.currency.toUpperCase() !== payment.currency.toUpperCase()
+  ) {
+    await sql`UPDATE public.payments SET status = 'failed', updated_at = now() WHERE id = ${payment.id}::uuid`;
+    throw new Error("Payment amount or currency does not match the checkout");
+  }
+
   if (payment.purpose === "topup") {
-    await creditWallet(payment.user_id, verified.amount);
-    await supabaseAdmin.from("transactions").insert({
-      user_id: payment.user_id,
-      type: "credit",
-      amount: verified.amount,
-      currency: verified.currency,
-      description: "Wallet top-up",
-    });
-    await supabaseAdmin.from("payments").update({ status: "paid" }).eq("id", payment.id);
-    await supabaseAdmin.from("notifications").insert({
-      user_id: payment.user_id,
-      type: "payment",
-      title: "Wallet topped up",
-      body: `${verified.currency} ${verified.amount.toLocaleString()} added to your balance`,
-      link: "/wallet",
-    });
+    await rpc<number>("topup_from_payment", { p_payment_id: payment.id });
     return { status: "paid" };
   }
 
   if (!payment.proposal_id) throw new Error("Payment is not linked to a hire");
-  const escrowId = await fundEscrowForProposal({
-    proposalId: payment.proposal_id,
-    clientId: payment.user_id,
-    amount: verified.amount,
-    currency: verified.currency,
-    fundingSource: "card",
-    paymentId: payment.id,
+
+  const escrowId = await rpc<string>("fund_escrow_from_payment", {
+    p_payment_id: payment.id,
   });
-  await supabaseAdmin.from("payments").update({ status: "paid", escrow_id: escrowId }).eq("id", payment.id);
   return { status: "paid", escrowId };
-}
-
-export async function creditWallet(userId: string, amount: number) {
-  const { data: profile } = await supabaseAdmin
-    .from("profiles")
-    .select("wallet_balance")
-    .eq("id", userId)
-    .maybeSingle();
-  await supabaseAdmin
-    .from("profiles")
-    .update({ wallet_balance: Number(profile?.wallet_balance ?? 0) + amount })
-    .eq("id", userId);
-}
-
-export async function debitWallet(userId: string, amount: number) {
-  const { data: profile } = await supabaseAdmin
-    .from("profiles")
-    .select("wallet_balance")
-    .eq("id", userId)
-    .maybeSingle();
-  const balance = Number(profile?.wallet_balance ?? 0);
-  if (balance < amount) throw new Error("Insufficient wallet balance");
-  await supabaseAdmin
-    .from("profiles")
-    .update({ wallet_balance: balance - amount })
-    .eq("id", userId);
-}
-
-/** Creates the funded escrow, accepts the proposal and declines the rest. */
-export async function fundEscrowForProposal(input: {
-  proposalId: string;
-  clientId: string;
-  amount: number;
-  currency: string;
-  fundingSource: "card" | "wallet";
-  paymentId?: string;
-}): Promise<string> {
-  const { data: proposal } = await supabaseAdmin
-    .from("proposals")
-    .select("id,talent_id,opportunity_id,escrow_id,status")
-    .eq("id", input.proposalId)
-    .maybeSingle();
-  if (!proposal) throw new Error("Proposal not found");
-  if (proposal.escrow_id) return proposal.escrow_id;
-
-  const { data: opportunity } = await supabaseAdmin
-    .from("opportunities")
-    .select("id,title,company,client_id")
-    .eq("id", proposal.opportunity_id)
-    .maybeSingle();
-  if (!opportunity || opportunity.client_id !== input.clientId) throw new Error("Forbidden");
-
-  const now = new Date().toISOString();
-  const { data: escrow, error } = await supabaseAdmin
-    .from("escrows")
-    .insert({
-      opportunity_id: opportunity.id,
-      proposal_id: proposal.id,
-      client_id: input.clientId,
-      talent_id: proposal.talent_id,
-      title: opportunity.title,
-      company: opportunity.company,
-      amount: input.amount,
-      currency: input.currency,
-      status: "funded",
-      funded_at: now,
-      funding_source: input.fundingSource,
-      payment_id: input.paymentId ?? null,
-    })
-    .select("id")
-    .single();
-  if (error) throw new Error(error.message);
-
-  await supabaseAdmin.from("proposals").update({ status: "accepted", escrow_id: escrow.id }).eq("id", proposal.id);
-  await supabaseAdmin.from("opportunities").update({ status: "in_progress" }).eq("id", opportunity.id);
-  await supabaseAdmin
-    .from("proposals")
-    .update({ status: "declined" })
-    .eq("opportunity_id", opportunity.id)
-    .neq("id", proposal.id)
-    .eq("status", "submitted");
-
-  await supabaseAdmin.from("transactions").insert({
-    user_id: input.clientId,
-    type: "debit",
-    amount: input.amount,
-    currency: input.currency,
-    description: `Escrow funded — ${opportunity.title}`,
-  });
-
-  await supabaseAdmin.from("notifications").insert([
-    {
-      user_id: proposal.talent_id,
-      type: "hired",
-      title: "You have been hired",
-      body: `${opportunity.title} — payment is held in escrow`,
-      link: "/wallet",
-    },
-    {
-      user_id: input.clientId,
-      type: "payment",
-      title: "Escrow funded",
-      body: `${input.currency} ${input.amount.toLocaleString()} — ${opportunity.title}`,
-      link: "/wallet",
-    },
-  ]);
-
-  return escrow.id;
 }

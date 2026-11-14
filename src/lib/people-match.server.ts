@@ -2,8 +2,9 @@ import { createOpenAI } from "@ai-sdk/openai";
 import { Output, streamText } from "ai";
 import { z } from "zod";
 
-const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1";
-const MODEL = "openai/gpt-6-astra";
+// Any OpenAI-compatible endpoint works: set AI_BASE_URL, AI_API_KEY and AI_MODEL.
+const BASE_URL = process.env["AI_BASE_URL"] ?? "https://api.openai.com/v1";
+const MODEL = process.env["AI_MODEL"] ?? "gpt-4o-mini";
 
 export type MatchCandidate = {
   id: string;
@@ -31,17 +32,13 @@ export class GatewayError extends Error {
 }
 
 export async function rankPeople(interests: string, candidates: MatchCandidate[]) {
-  const apiKey = process.env["LOVABLE_API_KEY"];
+  const apiKey = process.env["AI_API_KEY"];
   if (!apiKey) throw new GatewayError(401, "AI is not configured for this app.");
 
-  const provider = createOpenAI({
-    baseURL: GATEWAY_URL,
-    apiKey,
-    headers: { "Lovable-API-Key": apiKey, "X-Lovable-AIG-SDK": "vercel-ai-sdk" },
-  });
+  const provider = createOpenAI({ baseURL: BASE_URL, apiKey });
 
   const result = streamText({
-    model: provider.responses(MODEL),
+    model: provider.chat(MODEL),
     instructions:
       "You match professionals on a career network. Given a member's career interests and a list of candidate profiles, pick up to 6 people most worth connecting with. Only use ids from the list. For each give a one-sentence reason addressed to the member (e.g. 'Works in fintech product design, the field you want to move into.') and a score 0-100. Return fewer if few are relevant.",
     messages: [
@@ -51,15 +48,6 @@ export async function rankPeople(interests: string, candidates: MatchCandidate[]
       },
     ],
     output: Output.object({ schema: resultSchema }),
-    providerOptions: {
-      openai: {
-        forceReasoning: true,
-        reasoningEffort: "low",
-        reasoningSummary: "auto",
-        store: false,
-        include: ["reasoning.encrypted_content"],
-      },
-    },
   });
 
   try {
