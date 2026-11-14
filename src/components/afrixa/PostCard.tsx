@@ -7,9 +7,8 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
-import { supabase } from "@/integrations/supabase/client";
 import { initials } from "@/lib/afrixa";
-import { fetchComments, setReaction } from "@/lib/social.data";
+import { addComment, addReply, deletePost, fetchComments, setReaction } from "@/lib/social.data";
 import {
   POST_KIND_LABEL,
   REACTIONS,
@@ -35,7 +34,7 @@ export function PostCard({ post }: { post: FeedPost }) {
   const react = useMutation({
     mutationFn: async (reaction: ReactionKind) => {
       if (!user) throw new Error("Sign in to react");
-      await setReaction(post.id, user.id, reaction, post.myReaction);
+      await setReaction({ data: { postId: post.id, reaction, current: post.myReaction } });
     },
     onSuccess: () => {
       setShowReactions(false);
@@ -47,16 +46,13 @@ export function PostCard({ post }: { post: FeedPost }) {
   const { data: comments = [] } = useQuery({
     queryKey: ["post-comments", post.id],
     enabled: showComments,
-    queryFn: () => fetchComments(post.id),
+    queryFn: () => fetchComments({ data: { postId: post.id } }),
   });
 
   const comment = useMutation({
     mutationFn: async () => {
       if (!user) throw new Error("Sign in to comment");
-      const { error } = await supabase
-        .from("post_comments")
-        .insert({ post_id: post.id, author_id: user.id, body: draft.trim() });
-      if (error) throw error;
+      await addComment({ data: { postId: post.id, body: draft.trim() } });
     },
     onSuccess: () => {
       setDraft("");
@@ -70,13 +66,7 @@ export function PostCard({ post }: { post: FeedPost }) {
     mutationFn: async () => {
       if (!user) throw new Error("Sign in to reply");
       if (!replyTo) throw new Error("Pick a comment to reply to");
-      const { error } = await supabase.from("post_comments").insert({
-        post_id: post.id,
-        author_id: user.id,
-        body: replyDraft.trim(),
-        parent_id: replyTo.parent_id ?? replyTo.id,
-      });
-      if (error) throw error;
+      await addReply({ data: { postId: post.id, body: replyDraft.trim(), parentId: (replyTo.parent_id ?? replyTo.id) as string } });
     },
     onSuccess: () => {
       setReplyDraft("");
@@ -89,8 +79,7 @@ export function PostCard({ post }: { post: FeedPost }) {
 
   const remove = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase.from("posts").delete().eq("id", post.id);
-      if (error) throw error;
+      await deletePost({ data: { postId: post.id } });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["feed"] });

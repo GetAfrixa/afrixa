@@ -4,7 +4,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { CheckCircle, Trophy } from "@phosphor-icons/react";
 
-import { supabase } from "@/integrations/supabase/client";
+import { saveAssessment } from "@/lib/workspace.functions";
 import { AppShell, ScreenHeader } from "@/components/afrixa/AppShell";
 import { useAuth } from "@/hooks/useAuth";
 import { ASSESSMENT_QUESTIONS, levelForScore } from "@/lib/afrixa";
@@ -15,12 +15,12 @@ import { cn } from "@/lib/utils";
 export const Route = createFileRoute("/_authenticated/assessment")({
   head: () => ({
     meta: [
-      { title: "Skills assessment — Afrixa" },
+      { title: "Skills assessment - Afrixa" },
       {
         name: "description",
         content: "Complete an Afrixa skills assessment and save a verified score to your talent profile.",
       },
-      { property: "og:title", content: "Skills assessment — Afrixa" },
+      { property: "og:title", content: "Skills assessment - Afrixa" },
       {
         property: "og:description",
         content: "Earn a skills badge for your Afrixa profile through a short assessment.",
@@ -51,13 +51,13 @@ function AssessmentPage() {
     mutationFn: async () => {
       if (!user) throw new Error("Not signed in");
       if (!complete) throw new Error("Answer every question before submitting");
-      const { error } = await supabase.from("assessments").insert({
-        user_id: user.id,
-        skill: profile?.primary_skill ?? "General freelancing",
-        score,
-        level: levelForScore(score),
+      await saveAssessment({
+        data: {
+          skill: profile?.primary_skill ?? "General freelancing",
+          score,
+          level: levelForScore(score),
+        },
       });
-      if (error) throw error;
     },
     onSuccess: () => {
       setSavedScore(score);
@@ -70,7 +70,7 @@ function AssessmentPage() {
   return (
     <AppShell>
       <ScreenHeader title="Assessment" subtitle={profile?.primary_skill ?? "General skills"} back />
-      <main className="space-y-5 px-4">
+      <main className="mx-auto w-full max-w-2xl space-y-5 px-4 py-4 pb-8 md:px-8 md:py-6">
         <section className="surface-hero rounded-2xl p-5 text-primary-foreground shadow-lift">
           <div className="flex items-center justify-between gap-4">
             <div>

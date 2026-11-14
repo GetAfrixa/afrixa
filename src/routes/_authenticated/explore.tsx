@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { MagnifyingGlass, SlidersHorizontal } from "@phosphor-icons/react";
 
-import { supabase } from "@/integrations/supabase/client";
+import { searchOpportunities } from "@/lib/workspace.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { AppShell, ScreenHeader } from "@/components/afrixa/AppShell";
 import { GigCard, OpportunityCard } from "@/components/afrixa/OpportunityCard";
@@ -73,22 +73,17 @@ function ExplorePage() {
 
   const { data: results = [], isLoading } = useQuery({
     queryKey: ["opportunities", category, query, country],
-    queryFn: async () => {
-      let builder = supabase.from("opportunities").select("*");
-      if (category !== "all") builder = builder.eq("category", category);
-      if (country !== "all") builder = builder.eq("country", country);
-      if (query.trim()) builder = builder.ilike("title", `%${query.trim()}%`);
-      const { data, error } = await builder.order("created_at", { ascending: false }).limit(50);
-      if (error) throw error;
-      return (data ?? []) as Opportunity[];
-    },
+    queryFn: () =>
+      searchOpportunities({
+        data: { category, country, query: query.trim(), limit: 50 },
+      }) as Promise<Opportunity[]>,
   });
 
   return (
     <AppShell>
       <ScreenHeader title="Explore" subtitle="Verified, escrow-protected work" />
 
-      <div className="space-y-4 px-4">
+      <div className="mx-auto w-full max-w-[1060px] space-y-4 px-4 py-4 pb-8 md:px-8 md:py-6">
         <div className="flex gap-2">
           <div className="relative flex-1">
             <MagnifyingGlass
@@ -107,7 +102,7 @@ function ExplorePage() {
             aria-label="Filters"
             onClick={() => setShowFilters((open) => !open)}
             className={cn(
-              "flex size-12 shrink-0 items-center justify-center rounded-md border",
+              "flex size-12 shrink-0 items-center justify-center rounded-md border md:hidden",
               showFilters ? "border-secondary text-secondary" : "border-border bg-card",
             )}
           >
@@ -116,10 +111,10 @@ function ExplorePage() {
         </div>
 
         {showFilters ? (
-          <div className="rounded-2xl border border-border bg-card p-4">
-            <p className="mb-2 text-xs font-medium text-muted-foreground">Country</p>
+          <div className={cn("rounded-2xl border border-border bg-card p-4 md:flex md:items-center md:gap-4", showFilters ? "block" : "hidden md:flex")}>
+            <p className="mb-2 text-xs font-medium text-muted-foreground md:mb-0 md:shrink-0">Country</p>
             <Select value={country} onValueChange={setCountry}>
-              <SelectTrigger className="h-11">
+              <SelectTrigger className="h-11 md:w-64">
                 <SelectValue placeholder="Any country" />
               </SelectTrigger>
               <SelectContent>
@@ -134,7 +129,7 @@ function ExplorePage() {
           </div>
         ) : null}
 
-        <div className="flex gap-2 overflow-x-auto pb-1">
+        <div className="flex gap-2 overflow-x-auto pb-1 md:flex-wrap md:overflow-visible">
           {CATEGORIES.map((item) => (
             <button
               key={item.key}
@@ -167,13 +162,13 @@ function ExplorePage() {
             </p>
           </div>
         ) : category === "gig" ? (
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
             {results.map((item) => (
               <GigCard key={item.id} opportunity={item} />
             ))}
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="grid gap-3 lg:grid-cols-2">
             {results.map((item) => (
               <OpportunityCard key={item.id} opportunity={item} />
             ))}

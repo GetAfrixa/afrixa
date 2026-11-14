@@ -17,7 +17,7 @@ import { AiPeopleMatch } from "@/components/afrixa/AiPeopleMatch";
 export const Route = createFileRoute("/_authenticated/network")({
   head: () => ({
     meta: [
-      { title: "Your Afrixa network — connections and requests" },
+      { title: "Your Afrixa network - connections and requests" },
       {
         name: "description",
         content:
@@ -92,9 +92,9 @@ function PersonRow({
 function RecommendedGigs({ userId }: { userId: string }) {
   const { data: signals } = useQuery({
     queryKey: ["talent-signals", userId],
-    queryFn: () => fetchTalentSignals(userId),
+    queryFn: () => fetchTalentSignals(),
   });
-  const { data: gigs } = useQuery({ queryKey: ["open-gigs"], queryFn: () => fetchOpenGigs() });
+  const { data: gigs } = useQuery({ queryKey: ["open-gigs"], queryFn: () => fetchOpenGigs({ data: {} }) });
 
   const ranked = signals && gigs ? rankGigs(gigs, signals).slice(0, 4) : [];
   const hasSignals =
@@ -131,7 +131,7 @@ function RecommendedGigs({ userId }: { userId: string }) {
       </div>
       {ranked.length === 0 ? (
         <p className="rounded-2xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
-          No close matches right now — check back soon.
+          No close matches right now - check back soon.
         </p>
       ) : (
         ranked.map((item) => (
@@ -157,12 +157,12 @@ function NetworkPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["network", user?.id],
     enabled: Boolean(user?.id),
-    queryFn: () => fetchNetwork(user!.id),
+    queryFn: () => fetchNetwork(),
   });
 
   const respond = useMutation({
     mutationFn: ({ id, status }: { id: string; status: "accepted" | "declined" }) =>
-      respondToConnection(id, status),
+      respondToConnection({ data: { id, status } }),
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: ["network"] });
       queryClient.invalidateQueries({ queryKey: ["feed"] });
@@ -179,11 +179,12 @@ function NetworkPage() {
     ),
   ];
 
-  const { data: skillMap } = useQuery({
+  const { data: skillMapObj } = useQuery({
     queryKey: ["network-skills", peopleIds],
     enabled: peopleIds.length > 0,
-    queryFn: () => fetchSkillsForPeople(peopleIds),
+    queryFn: () => fetchSkillsForPeople({ data: { userIds: peopleIds } }),
   });
+  const skillMap = new Map(Object.entries(skillMapObj ?? {}));
 
   const incoming = data?.incoming ?? [];
 
@@ -194,14 +195,18 @@ function NetworkPage() {
     <AppShell>
       <ScreenHeader title="My network" subtitle={`${connected.length} connections`} back />
 
-      <div className="space-y-6 px-4 pb-6">
+      <div className="mx-auto grid w-full max-w-[1060px] gap-6 px-4 py-4 pb-8 md:px-8 md:py-6 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
         {isLoading ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Loading your network…</p>
         ) : null}
 
+        <div className="min-w-0 space-y-6">
         <AiPeopleMatch />
 
         {user?.id && profile?.role !== "client" ? <RecommendedGigs userId={user.id} /> : null}
+        </div>
+
+        <div className="space-y-6">
 
         {incoming.length > 0 ? (
           <section className="space-y-2">
@@ -311,6 +316,7 @@ function NetworkPage() {
             ))}
           </section>
         ) : null}
+        </div>
       </div>
     </AppShell>
   );

@@ -15,12 +15,12 @@ import { createCompany, fetchCompanies, fetchMyCompany, type CompanyInput } from
 export const Route = createFileRoute("/_authenticated/companies")({
   head: () => ({
     meta: [
-      { title: "Company directory — Afrixa" },
+      { title: "Company directory - Afrixa" },
       {
         name: "description",
         content: "Browse companies hiring on Afrixa by industry and location, and open their pages to see live roles.",
       },
-      { property: "og:title", content: "Company directory — Afrixa" },
+      { property: "og:title", content: "Company directory - Afrixa" },
       { property: "og:description", content: "Discover African companies hiring talent on Afrixa." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -37,17 +37,17 @@ function CompanyDirectory() {
 
   const { data: companies = [], isLoading } = useQuery({
     queryKey: ["companies"],
-    queryFn: fetchCompanies,
+    queryFn: () => fetchCompanies(),
   });
 
   const { data: myCompany } = useQuery({
     queryKey: ["my-company", user?.id],
     enabled: Boolean(user?.id),
-    queryFn: () => fetchMyCompany(user!.id),
+    queryFn: () => fetchMyCompany(),
   });
 
   const create = useMutation({
-    mutationFn: (input: CompanyInput) => createCompany(user!.id, input),
+    mutationFn: (input: CompanyInput) => createCompany({ data: input }),
     onSuccess: async (company) => {
       toast.success("Company page created");
       setCreating(false);
@@ -70,7 +70,7 @@ function CompanyDirectory() {
   return (
     <AppShell>
       <ScreenHeader title="Companies" subtitle="Teams hiring on Afrixa" back />
-      <main className="space-y-4 px-4">
+      <main className="mx-auto w-full max-w-[1060px] space-y-4 px-4 py-4 pb-8 md:px-8 md:py-6">
         <div className="relative">
           <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -112,7 +112,7 @@ function CompanyDirectory() {
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading companies…</p>
         ) : results.length ? (
-          <div className="space-y-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {results.map((company) => (
               <Link
                 key={company.id}

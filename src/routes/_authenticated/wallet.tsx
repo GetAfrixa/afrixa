@@ -5,7 +5,7 @@ import { Bank, CreditCard, Plus, ShieldCheck, Wallet } from "@phosphor-icons/rea
 import { useState } from "react";
 import { toast } from "sonner";
 
-import { supabase } from "@/integrations/supabase/client";
+import { listWalletEscrows, listWalletTransactions } from "@/lib/workspace.functions";
 import { AppShell, ScreenHeader } from "@/components/afrixa/AppShell";
 import { useAuth } from "@/hooks/useAuth";
 import { advanceEscrow } from "@/lib/hiring.functions";
@@ -39,12 +39,12 @@ type Transaction = {
 export const Route = createFileRoute("/_authenticated/wallet")({
   head: () => ({
     meta: [
-      { title: "Wallet and escrow — Afrixa" },
+      { title: "Wallet and escrow - Afrixa" },
       {
         name: "description",
         content: "Track Afrixa escrow balances, releases, payout methods and work-related transactions.",
       },
-      { property: "og:title", content: "Wallet and escrow — Afrixa" },
+      { property: "og:title", content: "Wallet and escrow - Afrixa" },
       {
         property: "og:description",
         content: "Your protected Afrixa payments, escrow milestones and payout readiness.",
@@ -62,32 +62,13 @@ function WalletPage() {
   const { data: escrows = [], isLoading } = useQuery({
     queryKey: ["wallet-escrows", user?.id],
     enabled: Boolean(user?.id),
-    queryFn: async () => {
-      if (!user) throw new Error("Not signed in");
-      const { data, error } = await supabase
-        .from("escrows")
-        .select("id,title,company,amount,currency,status,client_id,talent_id")
-        .or(`client_id.eq.${user.id},talent_id.eq.${user.id}`)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: () => listWalletEscrows(),
   });
 
   const { data: transactions = [] } = useQuery({
     queryKey: ["transactions", user?.id],
     enabled: Boolean(user?.id),
-    queryFn: async () => {
-      if (!user) throw new Error("Not signed in");
-      const { data, error } = await supabase
-        .from("transactions")
-        .select("id,amount,currency,type,description,created_at")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(6);
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: () => listWalletTransactions(),
   });
 
   const queryClient = useQueryClient();
@@ -131,8 +112,10 @@ function WalletPage() {
   return (
     <AppShell>
       <ScreenHeader title="Wallet" subtitle="Escrow and payouts" back />
-      <main className="space-y-5 px-4">
-        <section className="surface-hero rounded-2xl p-5 text-primary-foreground shadow-lift">
+      <main className="mx-auto w-full max-w-[1060px] px-4 py-4 pb-8 md:px-8 md:py-6">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.25fr)] lg:items-start">
+        <div className="space-y-5">
+        <section className="surface-hero rounded-2xl p-6 text-primary-foreground shadow-lift">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-primary-foreground/70">Available balance</p>
@@ -142,7 +125,7 @@ function WalletPage() {
               <Wallet size={24} weight="bold" />
             </span>
           </div>
-          <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
+          <div className="mt-6 grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-xl bg-white/12 p-3">
               <p className="text-primary-foreground/70">Held in escrow</p>
               <p className="font-semibold">{money(heldInEscrow)}</p>
@@ -177,6 +160,8 @@ function WalletPage() {
           </div>
         </Link>
 
+        </div>
+        <div className="space-y-5">
         <section>
           <h2 className="text-base font-semibold">Active escrows</h2>
           <div className="mt-3 space-y-3">
@@ -228,6 +213,8 @@ function WalletPage() {
             ))}
           </div>
         </section>
+        </div>
+        </div>
       </main>
 
       <Dialog open={topUpOpen} onOpenChange={setTopUpOpen}>

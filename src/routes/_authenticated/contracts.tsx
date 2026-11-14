@@ -26,13 +26,13 @@ import { listClientProposals } from "@/lib/hiring.functions";
 export const Route = createFileRoute("/_authenticated/contracts")({
   head: () => ({
     meta: [
-      { title: "Contracts & milestones — Afrixa" },
+      { title: "Contracts & milestones - Afrixa" },
       {
         name: "description",
         content:
           "Track funded milestones on every Afrixa contract: fund a step, start work, submit deliverables and approve to release payment.",
       },
-      { property: "og:title", content: "Contracts & milestones — Afrixa" },
+      { property: "og:title", content: "Contracts & milestones - Afrixa" },
       {
         property: "og:description",
         content: "Fund milestones, submit work and approve payments on your Afrixa contracts.",
@@ -75,7 +75,7 @@ function ContractsPage() {
     mutationFn: (input: { proposalId: string; title: string }) => create({ data: input }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["contracts"] });
-      toast.success("Contract created — add your milestones");
+      toast.success("Contract created - add your milestones");
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -127,12 +127,12 @@ function ContractsPage() {
         }
       />
 
-      <div className="space-y-4 px-4 pb-6">
+      <div className="mx-auto w-full max-w-[900px] px-4 py-4 pb-8 md:px-8 md:py-6 space-y-4">
         {hireable.length > 0 ? (
           <section className="space-y-2 rounded-2xl border border-border bg-card p-4">
             <h2 className="text-sm font-semibold">Ready for a contract</h2>
             <p className="text-xs text-muted-foreground">
-              You accepted these freelancers — set up a contract to plan milestones.
+              You accepted these freelancers - set up a contract to plan milestones.
             </p>
             {hireable.map((proposal) => (
               <div

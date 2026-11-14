@@ -1,10 +1,29 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Bell, Camera, Certificate, Gear, Plus, ShieldCheck, SignOut, Users } from "@phosphor-icons/react";
+import {
+  ArrowRight,
+  Bell,
+  Camera,
+  Certificate,
+  CreditCard,
+  Gear,
+  Plus,
+  ShieldCheck,
+  SignOut,
+  Users,
+  Wallet,
+} from "@phosphor-icons/react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { supabase } from "@/integrations/supabase/client";
+import {
+  addPortfolioItem as addPortfolioItemFn,
+  escrowBalance as escrowBalanceFn,
+  listAssessments,
+  listPortfolio,
+  setDiscoverable as setDiscoverableFn,
+  updateAvatar,
+} from "@/lib/workspace.functions";
 import { AppShell, ScreenHeader } from "@/components/afrixa/AppShell";
 import { useAuth } from "@/hooks/useAuth";
 import { useNotifications } from "@/hooks/useNotifications";
@@ -20,12 +39,12 @@ import { Progress } from "@/components/ui/progress";
 export const Route = createFileRoute("/_authenticated/profile")({
   head: () => ({
     meta: [
-      { title: "Profile — Afrixa" },
+      { title: "Profile - Afrixa" },
       {
         name: "description",
         content: "Review your Afrixa profile, portfolio, skills verification and account progress.",
       },
-      { property: "og:title", content: "Profile — Afrixa" },
+      { property: "og:title", content: "Profile - Afrixa" },
       {
         property: "og:description",
         content: "Afrixa profile, portfolio and verified work reputation in one place.",
@@ -50,14 +69,7 @@ function ProfilePage() {
   const { data: escrowBalance = 0 } = useQuery({
     queryKey: ["escrow-balance", user?.id],
     enabled: Boolean(user?.id),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("escrows")
-        .select("amount,status")
-        .in("status", ["funded", "in_progress", "delivered"]);
-      if (error) throw error;
-      return (data ?? []).reduce((total, row) => total + Number(row.amount), 0);
-    },
+    queryFn: () => escrowBalanceFn(),
   });
 
   async function onAvatarPicked(file: File | undefined) {
@@ -67,8 +79,7 @@ function ProfilePage() {
     setBusy(true);
     try {
       const url = await uploadUserFile("avatars", user.id, file);
-      const { error } = await supabase.from("profiles").update({ avatar_url: url }).eq("id", user.id);
-      if (error) throw error;
+      await updateAvatar({ data: { avatarUrl: url } });
       refreshProfile();
       toast.success("Profile photo updated");
     } catch (error) {
@@ -80,9 +91,10 @@ function ProfilePage() {
 
   async function toggleDiscoverable(next: boolean) {
     if (!user) return;
-    const { error } = await supabase.from("profiles").update({ discoverable: next }).eq("id", user.id);
-    if (error) {
-      toast.error(error.message);
+    try {
+      await setDiscoverableFn({ data: { discoverable: next } });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not update visibility");
       return;
     }
     refreshProfile();
@@ -93,12 +105,9 @@ function ProfilePage() {
     if (!user || !newItem.title.trim()) return;
     setBusy(true);
     try {
-      const { error } = await supabase.from("portfolio_items").insert({
-        user_id: user.id,
-        title: newItem.title.trim(),
-        category: newItem.category.trim() || null,
+      await addPortfolioItemFn({
+        data: { title: newItem.title.trim(), category: newItem.category.trim() || null },
       });
-      if (error) throw error;
       setNewItem({ title: "", category: "" });
       await queryClient.invalidateQueries({ queryKey: ["portfolio", user.id] });
       toast.success("Portfolio item added");
@@ -113,31 +122,13 @@ function ProfilePage() {
   const { data: portfolio = [] } = useQuery({
     queryKey: ["portfolio", user?.id],
     enabled: Boolean(user?.id),
-    queryFn: async () => {
-      if (!user) throw new Error("Not signed in");
-      const { data, error } = await supabase
-        .from("portfolio_items")
-        .select("id,title,category,link_url")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: () => listPortfolio(),
   });
 
   const { data: assessments = [] } = useQuery({
     queryKey: ["assessments", user?.id],
     enabled: Boolean(user?.id),
-    queryFn: async () => {
-      if (!user) throw new Error("Not signed in");
-      const { data, error } = await supabase
-        .from("assessments")
-        .select("id,skill,score,level,created_at")
-        .eq("user_id", user.id)
-        .order("created_at", { ascending: false });
-      if (error) throw error;
-      return data ?? [];
-    },
+    queryFn: () => listAssessments(),
   });
 
   const latestAssessment = assessments[0];
@@ -148,7 +139,7 @@ function ProfilePage() {
         title="Profile"
         subtitle={profile?.role === "client" ? "Hiring account" : "Talent account"}
         action={
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-2">
             <Link
               to="/notifications"
               aria-label="Notifications"
@@ -161,31 +152,36 @@ function ProfilePage() {
                 </span>
               ) : null}
             </Link>
-            <Button variant="ghost" size="icon" aria-label="Settings">
+            <Link
+              to="/payment-setup"
+              aria-label="Payment settings"
+              className="flex size-9 items-center justify-center rounded-full border border-border bg-card"
+            >
               <Gear size={18} />
-            </Button>
+            </Link>
           </div>
         }
       />
-      <main className="space-y-5 px-4">
-        <section className="surface-hero rounded-2xl p-5 text-primary-foreground shadow-lift">
-          <div className="flex items-start gap-4">
+
+      <main className="space-y-5 px-4 py-4 md:px-8 md:py-6">
+        <section className="surface-hero overflow-hidden rounded-3xl p-5 text-primary-foreground shadow-lift md:p-7">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
             <button
               type="button"
               onClick={() => avatarInput.current?.click()}
               disabled={busy}
               aria-label="Change profile photo"
-              className="relative size-16 shrink-0 overflow-hidden rounded-2xl bg-white/15"
+              className="relative size-20 shrink-0 overflow-hidden rounded-3xl bg-white/15 md:size-24"
             >
               {profile?.avatar_url ? (
                 <img src={profile.avatar_url} alt="Profile photo" className="size-full object-cover" />
               ) : (
-                <span className="flex size-full items-center justify-center text-lg font-bold">
+                <span className="flex size-full items-center justify-center text-2xl font-bold">
                   {initials(profile?.full_name)}
                 </span>
               )}
-              <span className="absolute inset-x-0 bottom-0 flex items-center justify-center bg-black/40 py-0.5">
-                <Camera size={12} weight="bold" />
+              <span className="absolute inset-x-0 bottom-0 flex items-center justify-center bg-black/40 py-1">
+                <Camera size={13} weight="bold" />
               </span>
             </button>
             <input
@@ -197,139 +193,253 @@ function ProfilePage() {
             />
 
             <div className="min-w-0 flex-1">
-              <h2 className="truncate text-xl font-bold">{profile?.full_name ?? "Afrixa member"}</h2>
-              <p className="mt-1 text-sm text-primary-foreground/75">
-                {profile?.headline ?? profile?.business_name ?? "Ready for verified work"}
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-medium">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold">
+                <span className="rounded-full bg-white/15 px-2.5 py-1 capitalize">
+                  {profile?.role ?? "member"}
+                </span>
                 {profile?.verified ? (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-1">
+                  <span className="inline-flex items-center gap-1 rounded-full bg-white/15 px-2.5 py-1">
                     <ShieldCheck size={13} weight="fill" /> Verified
                   </span>
                 ) : (
-                  <Link to="/verify" className="inline-flex items-center gap-1 rounded-full bg-gold px-2 py-1 text-foreground">
+                  <Link
+                    to="/verify"
+                    className="inline-flex items-center gap-1 rounded-full bg-gold px-2.5 py-1 text-foreground"
+                  >
                     <ShieldCheck size={13} /> Get verified
                   </Link>
                 )}
-                {profile?.country ? <span className="rounded-full bg-white/15 px-2 py-1">{profile.country}</span> : null}
+                {profile?.country ? (
+                  <span className="rounded-full bg-white/15 px-2.5 py-1">{profile.country}</span>
+                ) : null}
               </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="grid grid-cols-2 gap-3">
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
-            <p className="text-xs text-muted-foreground">Profile strength</p>
-            <p className="mt-1 text-xl font-bold text-secondary">{profile?.profile_strength ?? 0}%</p>
-            <Progress value={profile?.profile_strength ?? 0} className="mt-3 h-2" />
-          </div>
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
-            <p className="text-xs text-muted-foreground">In escrow</p>
-            <p className="mt-1 text-xl font-bold">{money(escrowBalance)}</p>
-          </div>
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
-            <p className="text-xs text-muted-foreground">Total earned</p>
-            <p className="mt-1 text-xl font-bold">{money(profile?.total_earned ?? 0)}</p>
-          </div>
-        </section>
-
-        <section className="rounded-2xl border border-border bg-card p-4 shadow-card">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <h2 className="text-base font-semibold">Skill assessment</h2>
-              <p className="mt-1 text-xs text-muted-foreground">
-                {latestAssessment
-                  ? `${latestAssessment.level} · ${latestAssessment.score}%`
-                  : "Earn a visible skills badge"}
+              <h2 className="mt-2 truncate text-2xl font-bold md:text-3xl">
+                {profile?.full_name ?? "Afrixa member"}
+              </h2>
+              <p className="mt-1 max-w-xl text-sm text-primary-foreground/75 md:text-base">
+                {profile?.headline ?? profile?.business_name ?? "Ready for verified work"}
               </p>
+              {profile?.bio ? (
+                <p className="mt-3 max-w-2xl text-sm text-primary-foreground/80">{profile.bio}</p>
+              ) : null}
+              {user ? (
+                <Link
+                  to="/talent/$id"
+                  params={{ id: user.id }}
+                  className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold underline underline-offset-4 decoration-white/40"
+                >
+                  View public profile <ArrowRight size={14} />
+                </Link>
+              ) : null}
             </div>
-            <Link
-              to="/assessment"
-              className="inline-flex size-10 items-center justify-center rounded-full bg-secondary text-secondary-foreground"
-              aria-label="Open assessment"
-            >
-              <Certificate size={18} weight="bold" />
-            </Link>
           </div>
         </section>
 
-        {profile?.role === "client" ? (
-          <section className="grid grid-cols-2 gap-3">
-            <Link
-              to="/proposals"
-              className="rounded-2xl border border-border bg-card p-4 text-sm font-semibold shadow-card"
-            >
-              <Certificate size={20} className="mb-2 text-primary" /> Proposals
-            </Link>
-            <Link
-              to="/talent"
-              className="rounded-2xl border border-border bg-card p-4 text-sm font-semibold shadow-card"
-            >
-              <Users size={20} className="mb-2 text-secondary" /> Find talent
-            </Link>
-          </section>
-        ) : (
-          <section className="flex items-center justify-between rounded-2xl border border-border bg-card p-4 shadow-card">
-            <div className="pr-3">
-              <h2 className="text-base font-semibold">Discoverable</h2>
-              <p className="mt-1 text-xs text-muted-foreground">Let clients find you in talent search</p>
-            </div>
-            <Switch checked={discoverable} onCheckedChange={(next) => void toggleDiscoverable(next)} />
-          </section>
-        )}
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] lg:items-start">
+          <div className="space-y-5">
+            <section className="grid grid-cols-3 gap-3">
+              <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
+                <p className="text-xs text-muted-foreground">Profile strength</p>
+                <p className="mt-1 text-xl font-bold text-secondary">
+                  {profile?.profile_strength ?? 0}%
+                </p>
+                <Progress value={profile?.profile_strength ?? 0} className="mt-3 h-1.5" />
+              </div>
+              <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
+                <p className="text-xs text-muted-foreground">In escrow</p>
+                <p className="mt-1 text-xl font-bold">{money(escrowBalance)}</p>
+              </div>
+              <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
+                <p className="text-xs text-muted-foreground">Total earned</p>
+                <p className="mt-1 text-xl font-bold">{money(profile?.total_earned ?? 0)}</p>
+              </div>
+            </section>
 
-        {profile?.role === "client" ? null : (
-          <ProfileDossierEditor
-            userId={user!.id}
-            hourlyRate={profile?.hourly_rate ?? null}
-            onRateSaved={refreshProfile}
-          />
-        )}
-
-        <section>
-          <h2 className="text-base font-semibold">Portfolio</h2>
-          <div className="mt-3 space-y-3">
-            {portfolio.length ? (
-              portfolio.map((item) => (
-                <article key={item.id} className="rounded-2xl border border-border bg-card p-4 shadow-card">
-                  <h3 className="text-sm font-semibold">{item.title}</h3>
-                  <p className="mt-1 text-xs text-muted-foreground">{item.category ?? "Portfolio item"}</p>
-                </article>
-              ))
-            ) : (
-              <p className="rounded-2xl border border-dashed border-border p-6 text-sm text-muted-foreground">
-                Add portfolio work to strengthen your profile.
-              </p>
+            {profile?.role === "client" ? null : (
+              <ProfileDossierEditor
+                userId={user!.id}
+                hourlyRate={profile?.hourly_rate ?? null}
+                onRateSaved={refreshProfile}
+              />
             )}
 
-            <div className="space-y-2 rounded-2xl border border-border bg-card p-4 shadow-card">
-              <Input
-                value={newItem.title}
-                onChange={(event) => setNewItem((prev) => ({ ...prev, title: event.target.value }))}
-                placeholder="Project title"
-                className="h-11 rounded-xl"
-              />
-              <Input
-                value={newItem.category}
-                onChange={(event) => setNewItem((prev) => ({ ...prev, category: event.target.value }))}
-                placeholder="Category (optional)"
-                className="h-11 rounded-xl"
-              />
-              <Button
-                className="h-11 w-full"
-                disabled={busy || !newItem.title.trim()}
-                onClick={() => void addPortfolioItem()}
-              >
-                <Plus size={16} /> Add portfolio item
-              </Button>
-            </div>
+            <section className="rounded-2xl border border-border bg-card p-5 shadow-card">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold">Portfolio</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Work samples clients can scan in seconds
+                  </p>
+                </div>
+                <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-muted-foreground">
+                  {portfolio.length}
+                </span>
+              </div>
+
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                {portfolio.map((item) => (
+                  <article
+                    key={item.id}
+                    className="rounded-xl border border-border bg-background p-4"
+                  >
+                    <h3 className="truncate text-sm font-semibold">{item.title}</h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {item.category ?? "Portfolio item"}
+                    </p>
+                  </article>
+                ))}
+                {portfolio.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground sm:col-span-2">
+                    Add portfolio work to strengthen your profile.
+                  </p>
+                ) : null}
+              </div>
+
+              <div className="mt-4 grid gap-2 rounded-xl border border-border bg-background p-3 sm:grid-cols-[1.4fr_1fr_auto]">
+                <Input
+                  value={newItem.title}
+                  onChange={(event) => setNewItem((prev) => ({ ...prev, title: event.target.value }))}
+                  placeholder="Project title"
+                  className="h-11 rounded-lg"
+                />
+                <Input
+                  value={newItem.category}
+                  onChange={(event) =>
+                    setNewItem((prev) => ({ ...prev, category: event.target.value }))
+                  }
+                  placeholder="Category (optional)"
+                  className="h-11 rounded-lg"
+                />
+                <Button
+                  className="h-11 rounded-lg sm:px-4"
+                  disabled={busy || !newItem.title.trim()}
+                  onClick={() => void addPortfolioItem()}
+                >
+                  <Plus size={16} /> Add
+                </Button>
+              </div>
+            </section>
           </div>
-        </section>
 
+          <div className="space-y-5">
+            <section className="rounded-2xl border border-border bg-card p-5 shadow-card">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold">Skill assessment</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {latestAssessment
+                      ? `${latestAssessment.level} - ${latestAssessment.score}%`
+                      : "Earn a visible skills badge"}
+                  </p>
+                </div>
+                <Link
+                  to="/assessment"
+                  aria-label="Open assessment"
+                  className="flex size-10 shrink-0 items-center justify-center rounded-full bg-secondary text-secondary-foreground"
+                >
+                  <Certificate size={18} weight="bold" />
+                </Link>
+              </div>
+              {latestAssessment ? (
+                <div className="mt-4 space-y-2">
+                  {assessments.slice(0, 3).map((item) => (
+                    <div key={item.id} className="flex items-center justify-between text-sm">
+                      <span className="truncate pr-3">{item.skill}</span>
+                      <span className="font-semibold text-secondary">{item.score}%</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <Button asChild variant="outline" className="mt-4 h-10 w-full rounded-lg">
+                  <Link to="/assessment">Take the assessment</Link>
+                </Button>
+              )}
+            </section>
 
-        <Button variant="outline" className="h-12 w-full bg-card" onClick={() => signOut()}>
-          <SignOut size={16} /> Sign out
-        </Button>
+            <section className="rounded-2xl border border-border bg-card p-5 shadow-card">
+              <h2 className="text-base font-semibold">Verification</h2>
+              {profile?.verified ? (
+                <p className="mt-2 flex items-center gap-2 text-sm text-secondary">
+                  <ShieldCheck size={18} weight="fill" /> Identity verified
+                </p>
+              ) : (
+                <>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Verified members get more replies and higher-paying work.
+                  </p>
+                  <Button asChild className="mt-3 h-10 w-full rounded-lg">
+                    <Link to="/verify">Verify identity</Link>
+                  </Button>
+                </>
+              )}
+            </section>
+
+            {profile?.role === "client" ? (
+              <section className="grid grid-cols-2 gap-3">
+                <Link
+                  to="/proposals"
+                  className="rounded-2xl border border-border bg-card p-4 text-sm font-semibold shadow-card transition-colors hover:border-secondary"
+                >
+                  <Certificate size={20} className="mb-2 text-primary" /> Proposals
+                </Link>
+                <Link
+                  to="/talent"
+                  className="rounded-2xl border border-border bg-card p-4 text-sm font-semibold shadow-card transition-colors hover:border-secondary"
+                >
+                  <Users size={20} className="mb-2 text-secondary" /> Find talent
+                </Link>
+              </section>
+            ) : (
+              <section className="flex items-center justify-between rounded-2xl border border-border bg-card p-5 shadow-card">
+                <div className="pr-3">
+                  <h2 className="text-base font-semibold">Discoverable</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Let clients find you in talent search
+                  </p>
+                </div>
+                <Switch
+                  checked={discoverable}
+                  onCheckedChange={(next) => void toggleDiscoverable(next)}
+                />
+              </section>
+            )}
+
+            <section className="rounded-2xl border border-border bg-card p-5 shadow-card">
+              <h2 className="text-base font-semibold">Account</h2>
+              <div className="mt-3 space-y-1">
+                <Link
+                  to="/wallet"
+                  className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm font-medium hover:bg-muted"
+                >
+                  <Wallet size={18} className="text-secondary" /> Wallet and escrows
+                  <ArrowRight size={14} className="ml-auto text-muted-foreground" />
+                </Link>
+                <Link
+                  to="/payment-setup"
+                  className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm font-medium hover:bg-muted"
+                >
+                  <CreditCard size={18} className="text-secondary" /> Payout methods
+                  <ArrowRight size={14} className="ml-auto text-muted-foreground" />
+                </Link>
+                <Link
+                  to="/notifications"
+                  className="flex items-center gap-3 rounded-lg px-2 py-2.5 text-sm font-medium hover:bg-muted"
+                >
+                  <Bell size={18} className="text-secondary" /> Notifications
+                  <ArrowRight size={14} className="ml-auto text-muted-foreground" />
+                </Link>
+              </div>
+            </section>
+
+            <Button
+              variant="outline"
+              className="h-12 w-full rounded-xl bg-card"
+              onClick={() => signOut()}
+            >
+              <SignOut size={16} /> Sign out
+            </Button>
+          </div>
+        </div>
       </main>
     </AppShell>
   );

@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { toast } from "sonner";
 import { Briefcase, UserFocus } from "@phosphor-icons/react";
 
-import { supabase } from "@/integrations/supabase/client";
+import { saveOnboarding } from "@/lib/workspace.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { COUNTRIES, EXPERIENCE_LEVELS, LANGUAGES, SKILLS } from "@/lib/afrixa";
 import { Button } from "@/components/ui/button";
@@ -81,9 +81,8 @@ function OnboardingPage() {
     if (!user || !role) return;
     setBusy(true);
     try {
-      const { error } = await supabase
-        .from("profiles")
-        .update({
+      await saveOnboarding({
+        data: {
           role,
           full_name: fullName,
           country: country || null,
@@ -95,10 +94,8 @@ function OnboardingPage() {
           business_name: role === "client" ? businessName || null : null,
           client_type: role === "client" ? clientType || null : null,
           profile_strength: strength(),
-          onboarding_complete: true,
-        })
-        .eq("id", user.id);
-      if (error) throw error;
+        },
+      });
       refreshProfile();
       toast.success("Profile ready. Welcome to Afrixa!");
       navigate({ to: "/home" });
@@ -110,22 +107,70 @@ function OnboardingPage() {
   }
 
   return (
-    <div className="mx-auto min-h-screen w-full max-w-md bg-background pb-10 md:max-w-xl lg:max-w-2xl">
-      <div className="surface-hero px-6 pb-10 pt-12 text-primary-foreground">
-        <p className="text-xs font-medium uppercase tracking-wide text-white/60">
-          Step {step + 1} of 2
-        </p>
-        <h1 className="mt-2 text-[26px] font-bold leading-tight">
-          {step === 0 ? "How will you use Afrixa?" : "Complete your profile"}
-        </h1>
-        <p className="mt-2 text-sm text-white/70">
-          {step === 0
-            ? "You can switch later in settings."
-            : "A stronger profile gets you seen faster."}
-        </p>
-      </div>
+    <div className="grid min-h-dvh w-full bg-background lg:grid-cols-[360px_minmax(0,1fr)]">
+      <aside className="surface-hero hidden flex-col justify-between p-10 text-primary-foreground lg:flex">
+        <span className="font-display text-2xl font-bold tracking-tight">Afrixa</span>
 
-      <div className="space-y-4 px-6 py-8">
+        <ol className="space-y-7">
+          {[
+            { label: "Choose how you will use Afrixa", hint: "Talent or hiring" },
+            { label: "Complete your profile", hint: "Get seen by clients" },
+          ].map((item, index) => (
+            <li key={item.label} className="flex gap-3">
+              <span
+                className={cn(
+                  "flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                  index <= step ? "bg-gold text-foreground" : "bg-white/15 text-white/70",
+                )}
+              >
+                {index + 1}
+              </span>
+              <span>
+                <span className={cn("block text-sm font-semibold", index <= step ? "" : "text-white/60")}>
+                  {item.label}
+                </span>
+                <span className="mt-0.5 block text-xs text-white/50">{item.hint}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+
+        <p className="text-xs text-white/50">
+          Connect. Discover. Work. Grow. Earn.
+        </p>
+      </aside>
+
+      <main className="flex justify-center px-4 py-8 md:px-10 md:py-12">
+        <div className="w-full max-w-xl">
+          <div className="surface-hero -mx-4 -mt-8 mb-6 px-6 pb-8 pt-10 text-primary-foreground lg:hidden">
+            <p className="text-xs font-medium uppercase tracking-wide text-white/60">
+              Step {step + 1} of 2
+            </p>
+            <h1 className="mt-2 text-[26px] font-bold leading-tight">
+              {step === 0 ? "How will you use Afrixa?" : "Complete your profile"}
+            </h1>
+            <p className="mt-2 text-sm text-white/70">
+              {step === 0
+                ? "You can switch later in settings."
+                : "A stronger profile gets you seen faster."}
+            </p>
+          </div>
+
+          <div className="mb-8 hidden lg:block">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-secondary">
+              Step {step + 1} of 2
+            </p>
+            <h1 className="mt-2 text-3xl font-bold leading-tight">
+              {step === 0 ? "How will you use Afrixa?" : "Complete your profile"}
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {step === 0
+                ? "You can switch later in settings."
+                : "A stronger profile gets you seen faster."}
+            </p>
+          </div>
+
+          <div className="space-y-4">
         {step === 0 ? (
           <>
             <RoleCard
@@ -307,7 +352,9 @@ function OnboardingPage() {
             </div>
           </>
         )}
-      </div>
+          </div>
+        </div>
+      </main>
     </div>
   );
 }

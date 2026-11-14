@@ -58,7 +58,7 @@ export function MilestoneRow({
         fund: "Milestone funded from your wallet",
         start: "Work started",
         submit: "Work submitted for review",
-        approve: "Approved — payment released",
+        approve: "Approved - payment released",
         cancel: "Milestone cancelled and refunded",
       };
       toast.success(messages[variables.action] ?? "Updated");

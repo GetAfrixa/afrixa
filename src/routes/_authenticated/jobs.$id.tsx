@@ -4,7 +4,13 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Buildings, Clock, MapPin, ShieldCheck, Star } from "@phosphor-icons/react";
 
-import { supabase } from "@/integrations/supabase/client";
+import { openDirectConversation } from "@/lib/social.data";
+import {
+  countProposals,
+  createProposal,
+  getMyProposal,
+  getOpportunity,
+} from "@/lib/workspace.functions";
 import { useAuth } from "@/hooks/useAuth";
 import { AppShell, ScreenHeader } from "@/components/afrixa/AppShell";
 import { EscrowBadge, SkillChip } from "@/components/afrixa/OpportunityCard";
@@ -18,13 +24,13 @@ import { uploadUserFile } from "@/lib/uploads";
 export const Route = createFileRoute("/_authenticated/jobs/$id")({
   head: () => ({
     meta: [
-      { title: "Opportunity details — Afrixa" },
+      { title: "Opportunity details - Afrixa" },
       {
         name: "description",
         content:
           "Review the brief, budget and escrow status, then send a proposal directly to the client on Afrixa.",
       },
-      { property: "og:title", content: "Opportunity details — Afrixa" },
+      { property: "og:title", content: "Opportunity details - Afrixa" },
       {
         property: "og:description",
         content: "Full brief, budget and escrow status with one-tap proposals.",
@@ -80,31 +86,13 @@ function JobDetailPage() {
 
   const { data: job, isLoading } = useQuery({
     queryKey: ["opportunity", id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("opportunities")
-        .select("*")
-        .eq("id", id)
-        .maybeSingle();
-      if (error) throw error;
-      return (data as Opportunity | null) ?? null;
-    },
+    queryFn: () => getOpportunity({ data: { id } }) as Promise<Opportunity | null>,
   });
 
   const { data: existing } = useQuery({
     queryKey: ["proposal", id, user?.id],
     enabled: Boolean(user?.id),
-    queryFn: async () => {
-      if (!user) throw new Error("Not signed in");
-      const { data, error } = await supabase
-        .from("proposals")
-        .select("id,status")
-        .eq("opportunity_id", id)
-        .eq("talent_id", user.id)
-        .maybeSingle();
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => getMyProposal({ data: { opportunityId: id } }),
   });
 
   const isOwner = Boolean(user?.id && job?.client_id && job.client_id === user.id);
@@ -112,32 +100,25 @@ function JobDetailPage() {
   const { data: proposalCount = 0 } = useQuery({
     queryKey: ["opportunity-proposal-count", id],
     enabled: isOwner,
-    queryFn: async () => {
-      const { count, error } = await supabase
-        .from("proposals")
-        .select("id", { count: "exact", head: true })
-        .eq("opportunity_id", id);
-      if (error) throw error;
-      return count ?? 0;
-    },
+    queryFn: () => countProposals({ data: { opportunityId: id } }),
   });
 
   const apply = useMutation({
     mutationFn: async () => {
       if (!user || !job) throw new Error("Not signed in");
-      const { error } = await supabase.from("proposals").insert({
-        opportunity_id: job.id,
-        talent_id: user.id,
-        cover_letter: cover,
-        bid_amount: bid ? Number(bid) : null,
-        currency: job.currency,
-        delivery_days: days ? Number(days) : null,
-        resume_url: resume?.url ?? null,
-        resume_name: resume?.name ?? null,
-        portfolio_urls: samples.map((item) => item.url),
-        years_experience: years.trim() || null,
+      await createProposal({
+        data: {
+          opportunityId: job.id,
+          coverLetter: cover,
+          bidAmount: bid ? Number(bid) : null,
+          currency: job.currency,
+          deliveryDays: days ? Number(days) : null,
+          resumeUrl: resume?.url ?? null,
+          resumeName: resume?.name ?? null,
+          portfolioUrls: samples.map((item) => item.url),
+          yearsExperience: years.trim() || null,
+        },
       });
-      if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Proposal sent. The client will be notified.");
@@ -151,22 +132,7 @@ function JobDetailPage() {
   const message = useMutation({
     mutationFn: async () => {
       if (!user || !job?.client_id) throw new Error("This poster is not reachable yet");
-      const { data: found, error: findError } = await supabase
-        .from("conversations")
-        .select("id")
-        .or(
-          `and(participant_a.eq.${user.id},participant_b.eq.${job.client_id}),and(participant_a.eq.${job.client_id},participant_b.eq.${user.id})`,
-        )
-        .maybeSingle();
-      if (findError) throw findError;
-      if (found) return found.id;
-      const { data: created, error } = await supabase
-        .from("conversations")
-        .insert({ participant_a: user.id, participant_b: job.client_id, subject: job.title })
-        .select("id")
-        .single();
-      if (error) throw error;
-      return created.id;
+      return await openDirectConversation({ data: { otherId: job.client_id } });
     },
     onSuccess: (conversationId) =>
       navigate({ to: "/messages/$id", params: { id: conversationId } }),
@@ -200,8 +166,8 @@ function JobDetailPage() {
     <AppShell>
       <ScreenHeader title={job.category === "gig" ? "Gig" : "Opportunity"} back tone="dark" />
 
-      <div className="surface-hero px-4 pb-10 pt-2 text-primary-foreground">
-        <h1 className="text-xl font-bold leading-snug">{job.title}</h1>
+      <div className="surface-hero px-4 pb-10 pt-2 text-primary-foreground md:px-8 md:pt-4 md:pb-12">
+        <h1 className="text-xl font-bold leading-snug md:text-3xl">{job.title}</h1>
         {job.client_id ? (
           <Link
             to="/talent/$id"
@@ -229,8 +195,9 @@ function JobDetailPage() {
         </div>
       </div>
 
-      <div className="-mt-6 space-y-4 px-4">
-        <div className="rounded-2xl border border-border bg-card p-4 shadow-card">
+      <div className="-mt-6 grid gap-4 px-4 pb-8 md:px-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+        <div className="min-w-0 space-y-4">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-card md:p-5">
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs text-muted-foreground">Budget</p>
@@ -279,12 +246,15 @@ function JobDetailPage() {
           ) : null}
         </div>
 
+        </div>
+
+        <div className="lg:sticky lg:top-24">
         {isOwner ? (
           <div className="space-y-3 rounded-2xl border border-border bg-card p-4 shadow-card">
             <p className="text-sm font-semibold">Your posting</p>
             <p className="text-xs text-muted-foreground">
               {proposalCount
-                ? `${proposalCount} ${proposalCount === 1 ? "proposal" : "proposals"} received. Accept one to fund escrow — the talent starts work and you release payment on approval.`
+                ? `${proposalCount} ${proposalCount === 1 ? "proposal" : "proposals"} received. Accept one to fund escrow - the talent starts work and you release payment on approval.`
                 : "No proposals yet. Talent applications appear here and in your proposals inbox."}
             </p>
             <Link
@@ -420,6 +390,7 @@ function JobDetailPage() {
             </Button>
           </div>
         )}
+        </div>
       </div>
     </AppShell>
   );

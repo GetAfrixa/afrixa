@@ -2,31 +2,38 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { PaperPlaneRight, Paperclip, Image as ImageIcon, FileText, X, Checks, Check, DownloadSimple, ArrowBendUpLeft } from "@phosphor-icons/react";
+import {
+  PaperPlaneRight,
+  Paperclip,
+  Image as ImageIcon,
+  FileText,
+  X,
+  Checks,
+  Check,
+  DownloadSimple,
+  ArrowBendUpLeft,
+} from "@phosphor-icons/react";
 
-import { supabase } from "@/integrations/supabase/client";
+import { uploadUserFile } from "@/lib/uploads";
+import {
+  getConversationSummary,
+  listMessageReactions,
+  listMessages,
+  sendMessage,
+  toggleMessageReaction,
+  type ChatMessage,
+  type ChatReaction,
+} from "@/lib/workspace.functions";
 import { AppShell, ScreenHeader } from "@/components/afrixa/AppShell";
 import { useAuth } from "@/hooks/useAuth";
 import { initials } from "@/lib/afrixa";
+import { markConversationRead } from "@/lib/messages.functions";
 import { cn } from "@/lib/utils";
 
-type Msg = {
-  id: string;
-  body: string;
-  sender_id: string;
-  created_at: string;
-  read_at: string | null;
-  attachment_path: string | null;
-  attachment_name: string | null;
-  attachment_type: string | null;
-  attachment_size: number | null;
-  reply_to_id: string | null;
-};
-
-type Reaction = { id: string; message_id: string; user_id: string; emoji: string };
+type Msg = ChatMessage;
+type Reaction = ChatReaction;
 
 const MAX = 20 * 1024 * 1024;
-const COLS = "id,body,sender_id,created_at,read_at,attachment_path,attachment_name,attachment_type,attachment_size,reply_to_id";
 const EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 function snippet(m: Msg | undefined) {
@@ -35,27 +42,58 @@ function snippet(m: Msg | undefined) {
 }
 
 function Bubble({
-  m, mine, original, originalName, reactions, myId, active,
-  onReply, onToggle, onReact, onJump,
+  m,
+  mine,
+  original,
+  originalName,
+  reactions,
+  myId,
+  active,
+  onReply,
+  onToggle,
+  onReact,
+  onJump,
 }: {
-  m: Msg; mine: boolean; original: Msg | undefined; originalName: string; reactions: Reaction[]; myId: string | undefined; active: boolean;
-  onReply: () => void; onToggle: (open: boolean) => void; onReact: (emoji: string) => void; onJump: (id: string) => void;
+  m: Msg;
+  mine: boolean;
+  original: Msg | undefined;
+  originalName: string;
+  reactions: Reaction[];
+  myId: string | undefined;
+  active: boolean;
+  onReply: () => void;
+  onToggle: (open: boolean) => void;
+  onReact: (emoji: string) => void;
+  onJump: (id: string) => void;
 }) {
   const [dx, setDx] = useState(0);
   const start = useRef<{ x: number; y: number } | null>(null);
   const press = useRef<ReturnType<typeof setTimeout> | null>(null);
   const swiping = useRef(false);
 
-  const clearPress = () => { if (press.current) clearTimeout(press.current); press.current = null; };
+  const clearPress = () => {
+    if (press.current) clearTimeout(press.current);
+    press.current = null;
+  };
 
-  const counts = reactions.reduce<Record<string, number>>((acc, r) => ({ ...acc, [r.emoji]: (acc[r.emoji] ?? 0) + 1 }), {});
+  const counts = reactions.reduce<Record<string, number>>(
+    (acc, r) => ({ ...acc, [r.emoji]: (acc[r.emoji] ?? 0) + 1 }),
+    {},
+  );
   const mineReaction = reactions.find((r) => r.user_id === myId)?.emoji;
 
   return (
-    <div id={`msg-${m.id}`} className={cn("relative flex flex-col", mine ? "items-end" : "items-start")}>
+    <div
+      id={`msg-${m.id}`}
+      className={cn("relative flex flex-col", mine ? "items-end" : "items-start")}
+    >
       <span
         className="pointer-events-none absolute top-1/2 -translate-y-1/2 text-muted-foreground transition-opacity"
-        style={{ left: mine ? undefined : 4, right: mine ? 4 : undefined, opacity: Math.min(Math.abs(dx) / 60, 1) }}
+        style={{
+          left: mine ? undefined : 4,
+          right: mine ? 4 : undefined,
+          opacity: Math.min(Math.abs(dx) / 60, 1),
+        }}
       >
         <ArrowBendUpLeft size={18} />
       </span>
@@ -81,10 +119,21 @@ function Bubble({
           start.current = null;
           setDx(0);
         }}
-        onPointerCancel={() => { clearPress(); start.current = null; setDx(0); }}
+        onPointerCancel={() => {
+          clearPress();
+          start.current = null;
+          setDx(0);
+        }}
         onDoubleClick={() => onToggle(!active)}
-        onContextMenu={(e) => { e.preventDefault(); onToggle(true); }}
-        style={{ transform: `translateX(${dx}px)`, transition: dx === 0 ? "transform 0.2s" : "none", touchAction: "pan-y" }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          onToggle(true);
+        }}
+        style={{
+          transform: `translateX(${dx}px)`,
+          transition: dx === 0 ? "transform 0.2s" : "none",
+          touchAction: "pan-y",
+        }}
         className={cn(
           "max-w-[80%] select-none space-y-1.5 rounded-2xl px-3.5 py-2.5 text-sm shadow-card",
           mine
@@ -98,7 +147,9 @@ function Bubble({
             onClick={() => onJump(m.reply_to_id!)}
             className={cn(
               "block w-full rounded-lg border-l-4 px-2.5 py-1.5 text-left text-xs",
-              mine ? "border-primary-foreground/60 bg-primary-foreground/10" : "border-secondary bg-muted",
+              mine
+                ? "border-primary-foreground/60 bg-primary-foreground/10"
+                : "border-secondary bg-muted",
             )}
           >
             <span className="block font-semibold">{originalName}</span>
@@ -107,9 +158,19 @@ function Bubble({
         )}
         <Attachment m={m} mine={mine} />
         {m.body && <p className="whitespace-pre-wrap break-words">{m.body}</p>}
-        <p className={cn("flex items-center justify-end gap-1 text-[10px]", mine ? "opacity-75" : "text-muted-foreground")}>
+        <p
+          className={cn(
+            "flex items-center justify-end gap-1 text-[10px]",
+            mine ? "opacity-75" : "text-muted-foreground",
+          )}
+        >
           {new Date(m.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-          {mine && (m.read_at ? <Checks size={12} weight="bold" aria-label="Seen" /> : <Check size={12} aria-label="Sent" />)}
+          {mine &&
+            (m.read_at ? (
+              <Checks size={12} weight="bold" aria-label="Seen" />
+            ) : (
+              <Check size={12} aria-label="Sent" />
+            ))}
         </p>
       </article>
       {Object.keys(counts).length > 0 && (
@@ -124,7 +185,8 @@ function Bubble({
                 mineReaction === emoji ? "border-secondary" : "border-border",
               )}
             >
-              {emoji}{n > 1 ? ` ${n}` : ""}
+              {emoji}
+              {n > 1 ? ` ${n}` : ""}
             </button>
           ))}
         </div>
@@ -136,15 +198,24 @@ function Bubble({
               key={emoji}
               type="button"
               aria-label={`React ${emoji}`}
-              onClick={() => { onReact(emoji); onToggle(false); }}
-              className={cn("rounded-full px-1.5 py-1 text-lg hover:bg-muted", mineReaction === emoji && "bg-muted")}
+              onClick={() => {
+                onReact(emoji);
+                onToggle(false);
+              }}
+              className={cn(
+                "rounded-full px-1.5 py-1 text-lg hover:bg-muted",
+                mineReaction === emoji && "bg-muted",
+              )}
             >
               {emoji}
             </button>
           ))}
           <button
             type="button"
-            onClick={() => { onReply(); onToggle(false); }}
+            onClick={() => {
+              onReply();
+              onToggle(false);
+            }}
             className="flex items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold hover:bg-muted"
           >
             <ArrowBendUpLeft size={14} /> Reply
@@ -158,10 +229,16 @@ function Bubble({
 export const Route = createFileRoute("/_authenticated/messages/$id")({
   head: () => ({
     meta: [
-      { title: "Chat — Afrixa" },
-      { name: "description", content: "Real-time Afrixa chat with messages, photos and file sharing." },
-      { property: "og:title", content: "Chat — Afrixa" },
-      { property: "og:description", content: "Send messages, media and files instantly on Afrixa." },
+      { title: "Chat - Afrixa" },
+      {
+        name: "description",
+        content: "Real-time Afrixa chat with messages, photos and file sharing.",
+      },
+      { property: "og:title", content: "Chat - Afrixa" },
+      {
+        property: "og:description",
+        content: "Send messages, media and files instantly on Afrixa.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -175,22 +252,17 @@ function fmtSize(n: number | null) {
 }
 
 function Attachment({ m, mine }: { m: Msg; mine: boolean }) {
-  const { data: url } = useQuery({
-    queryKey: ["chat-file", m.attachment_path],
-    enabled: Boolean(m.attachment_path),
-    staleTime: 50 * 60 * 1000,
-    queryFn: async () => {
-      const { data, error } = await supabase.storage.from("chat-attachments").createSignedUrl(m.attachment_path!, 3600);
-      if (error) throw error;
-      return data.signedUrl;
-    },
-  });
-  if (!m.attachment_path) return null;
+  const url = m.attachment_path;
+  if (!url) return null;
   const type = m.attachment_type ?? "";
   if (type.startsWith("image/"))
     return url ? (
       <a href={url} target="_blank" rel="noreferrer">
-        <img src={url} alt={m.attachment_name ?? "Image"} className="max-h-64 w-full rounded-xl object-cover" />
+        <img
+          src={url}
+          alt={m.attachment_name ?? "Image"}
+          className="max-h-64 w-full rounded-xl object-cover"
+        />
       </a>
     ) : (
       <div className="h-40 w-56 animate-pulse rounded-xl bg-muted" />
@@ -225,149 +297,65 @@ function ThreadPage() {
   const [body, setBody] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [sending, setSending] = useState(false);
-  const [typing, setTyping] = useState(false);
-  const [online, setOnline] = useState(false);
   const [replyTo, setReplyTo] = useState<Msg | null>(null);
   const [picker, setPicker] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const imgRef = useRef<HTMLInputElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const lastTypingSent = useRef(0);
 
   const { data: other } = useQuery({
     queryKey: ["conversation-other", id, user?.id],
     enabled: Boolean(user?.id),
-    queryFn: async () => {
-      if (!user) return null;
-      const { data: c } = await supabase
-        .from("conversations")
-        .select("participant_a,participant_b,subject")
-        .eq("id", id)
-        .maybeSingle();
-      if (!c) return null;
-      const otherId = c.participant_a === user.id ? c.participant_b : c.participant_a;
-      const { data: p } = await supabase
-        .from("profiles")
-        .select("id,full_name,avatar_url,headline")
-        .eq("id", otherId)
-        .maybeSingle();
-      return { id: otherId, name: p?.full_name || c.subject || "Afrixa member", avatar: p?.avatar_url ?? null, headline: p?.headline ?? null };
-    },
+    queryFn: () => getConversationSummary({ data: { conversationId: id } }),
   });
 
   const key = ["messages", id];
   const { data: messages = [], isLoading } = useQuery({
     queryKey: key,
     enabled: Boolean(user?.id),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("messages")
-        .select(COLS)
-        .eq("conversation_id", id)
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as Msg[];
-    },
+    queryFn: () => listMessages({ data: { conversationId: id } }),
+    refetchInterval: 4000,
   });
 
   const messageIds = messages.map((m) => m.id);
   const { data: reactions = [] } = useQuery({
     queryKey: ["message-reactions", id, messageIds.length],
     enabled: messageIds.length > 0,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("message_reactions")
-        .select("id,message_id,user_id,emoji")
-        .in("message_id", messageIds);
-      if (error) throw error;
-      return (data ?? []) as Reaction[];
-    },
+    queryFn: () => listMessageReactions({ data: { messageIds } }),
+    refetchInterval: 8000,
   });
   const byId = new Map(messages.map((m) => [m.id, m]));
-  const nameOf = (m?: Msg) => (!m ? "" : m.sender_id === user?.id ? "You" : other?.name ?? "Them");
+  const nameOf = (m?: Msg) =>
+    !m ? "" : m.sender_id === user?.id ? "You" : (other?.name ?? "Them");
 
-  // Realtime: new messages, read receipts, typing, presence
+  // Mark incoming as read. Messages belong to the other party, so the browser
+  // cannot update them directly; a SECURITY DEFINER function checks that the
+  // caller is a participant and stamps the rows.
   useEffect(() => {
     if (!user?.id) return;
-    const channel = supabase
-      .channel(`chat-${id}`, { config: { presence: { key: user.id } } })
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "messages", filter: `conversation_id=eq.${id}` },
-        (payload) => {
-          const m = payload.new as Msg;
-          qc.setQueryData<Msg[]>(key, (old = []) => (old.some((x) => x.id === m.id) ? old : [...old, m]));
-          if (m.sender_id !== user.id) setTyping(false);
-        },
-      )
-      .on(
-        "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "messages", filter: `conversation_id=eq.${id}` },
-        (payload) => {
-          const m = payload.new as Msg;
-          qc.setQueryData<Msg[]>(key, (old = []) => old.map((x) => (x.id === m.id ? { ...x, ...m } : x)));
-        },
-      )
-      .on("broadcast", { event: "typing" }, ({ payload }) => {
-        if (payload?.user === user.id) return;
-        setTyping(true);
-        if (typingTimer.current) clearTimeout(typingTimer.current);
-        typingTimer.current = setTimeout(() => setTyping(false), 3000);
-      })
-      .on("postgres_changes", { event: "*", schema: "public", table: "message_reactions" }, () => {
-        qc.invalidateQueries({ queryKey: ["message-reactions", id] });
-      })
-      .on("presence", { event: "sync" }, () => {
-        const state = channel.presenceState();
-        setOnline(Object.keys(state).some((k) => k !== user.id));
-      })
-      .subscribe(async (status) => {
-        if (status === "SUBSCRIBED") await channel.track({ at: Date.now() });
-      });
-    channelRef.current = channel;
-    return () => {
-      channelRef.current = null;
-      supabase.removeChannel(channel);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, user?.id]);
-
-  // Mark incoming as read
-  useEffect(() => {
-    if (!user?.id) return;
-    const unread = messages.filter((m) => m.sender_id !== user.id && !m.read_at).map((m) => m.id);
-    if (unread.length) {
-      supabase.from("messages").update({ read_at: new Date().toISOString() }).in("id", unread).then(() => {});
+    const unread = messages.some((m) => m.sender_id !== user.id && !m.read_at);
+    if (unread) {
+      void markConversationRead({ data: { conversationId: id } }).catch(() => {});
     }
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, user?.id]);
-
-  function onType(v: string) {
-    setBody(v);
-    const now = Date.now();
-    if (channelRef.current && now - lastTypingSent.current > 1500) {
-      lastTypingSent.current = now;
-      channelRef.current.send({ type: "broadcast", event: "typing", payload: { user: user?.id } });
-    }
-  }
+  }, [messages, user?.id, id]);
 
   function pick(f: File | undefined) {
     if (!f) return;
-    if (f.size > MAX) { toast.error("Files must be 20MB or smaller"); return; }
+    if (f.size > MAX) {
+      toast.error("Files must be 20MB or smaller");
+      return;
+    }
     setFile(f);
   }
 
   async function react(messageId: string, emoji: string) {
     if (!user) return;
-    const current = reactions.find((r) => r.message_id === messageId && r.user_id === user.id);
-    const { error } = current?.emoji === emoji
-      ? await supabase.from("message_reactions").delete().eq("id", current.id)
-      : current
-        ? await supabase.from("message_reactions").update({ emoji }).eq("id", current.id)
-        : await supabase.from("message_reactions").insert({ message_id: messageId, user_id: user.id, emoji });
-    if (error) toast.error(error.message);
+    try {
+      await toggleMessageReaction({ data: { messageId, emoji } });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not react");
+    }
     qc.invalidateQueries({ queryKey: ["message-reactions", id] });
   }
 
@@ -379,25 +367,31 @@ function ThreadPage() {
     try {
       let att: Partial<Msg> = {};
       if (file) {
-        const ext = file.name.split(".").pop()?.toLowerCase().replace(/[^a-z0-9]/g, "") || "bin";
-        const path = `${id}/${crypto.randomUUID()}.${ext}`;
-        const { error: upErr } = await supabase.storage.from("chat-attachments").upload(path, file, {
-          contentType: file.type || "application/octet-stream",
-        });
-        if (upErr) throw upErr;
-        att = { attachment_path: path, attachment_name: file.name, attachment_type: file.type || "application/octet-stream", attachment_size: file.size };
+        const path = await uploadUserFile("chat-attachments", user.id, file);
+        att = {
+          attachment_path: path,
+          attachment_name: file.name,
+          attachment_type: file.type || "application/octet-stream",
+          attachment_size: file.size,
+        };
       }
-      const { data, error } = await supabase
-        .from("messages")
-        .insert({ conversation_id: id, sender_id: user.id, body: text, reply_to_id: replyTo?.id ?? null, ...att })
-        .select(COLS)
-        .single();
-      if (error) throw error;
-      qc.setQueryData<Msg[]>(key, (old = []) => (old.some((x) => x.id === data.id) ? old : [...old, data as Msg]));
+      const data = await sendMessage({
+        data: {
+          conversationId: id,
+          body: text,
+          replyToId: replyTo?.id ?? null,
+          attachmentPath: att.attachment_path ?? null,
+          attachmentName: att.attachment_name ?? null,
+          attachmentType: att.attachment_type ?? null,
+          attachmentSize: att.attachment_size ?? null,
+        },
+      });
+      qc.setQueryData<Msg[]>(key, (old = []) =>
+        old.some((x) => x.id === data.id) ? old : [...old, data],
+      );
       setBody("");
       setFile(null);
       setReplyTo(null);
-      await supabase.from("conversations").update({ last_message_at: new Date().toISOString() }).eq("id", id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Could not send");
     } finally {
@@ -410,7 +404,7 @@ function ThreadPage() {
   return (
     <AppShell>
       <ScreenHeader title="Chat" back />
-      <main className="flex min-h-[calc(100vh-10rem)] flex-col">
+      <main className="mx-auto flex min-h-[calc(100vh-10rem)] w-full max-w-3xl flex-col">
         {other && (
           <Link
             to="/talent/$id"
@@ -419,18 +413,22 @@ function ThreadPage() {
           >
             <span className="relative">
               {other.avatar ? (
-                <img src={other.avatar} alt={other.name} className="size-11 rounded-full object-cover" />
+                <img
+                  src={other.avatar}
+                  alt={other.name}
+                  className="size-11 rounded-full object-cover"
+                />
               ) : (
                 <span className="surface-hero flex size-11 items-center justify-center rounded-full text-xs font-bold text-primary-foreground">
                   {initials(other.name)}
                 </span>
               )}
-              {online && <span className="absolute bottom-0 right-0 size-3 rounded-full border-2 border-card bg-secondary" />}
+
             </span>
             <span className="min-w-0">
               <span className="block truncate text-sm font-semibold">{other.name}</span>
               <span className="block truncate text-xs text-muted-foreground">
-                {typing ? "typing…" : online ? "Active now" : other.headline ?? "Afrixa member"}
+                {other.headline ?? "Afrixa member"}
               </span>
             </span>
           </Link>
@@ -449,7 +447,11 @@ function ThreadPage() {
                 <div key={m.id}>
                   {showDay && (
                     <p className="my-3 text-center text-[11px] font-medium text-muted-foreground">
-                      {new Date(m.created_at).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}
+                      {new Date(m.created_at).toLocaleDateString([], {
+                        weekday: "short",
+                        month: "short",
+                        day: "numeric",
+                      })}
                     </p>
                   )}
                   <Bubble
@@ -463,17 +465,20 @@ function ThreadPage() {
                     onToggle={(open) => setPicker(open ? m.id : null)}
                     onReply={() => setReplyTo(m)}
                     onReact={(emoji) => react(m.id, emoji)}
-                    onJump={(target) => document.getElementById(`msg-${target}`)?.scrollIntoView({ behavior: "smooth", block: "center" })}
+                    onJump={(target) =>
+                      document
+                        .getElementById(`msg-${target}`)
+                        ?.scrollIntoView({ behavior: "smooth", block: "center" })
+                    }
                   />
                 </div>
               );
             })
           ) : (
             <p className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">
-              No messages yet — say hello 👋
+              No messages yet - say hello 👋
             </p>
           )}
-          {typing && <p className="text-xs italic text-muted-foreground">{other?.name ?? "They"} is typing…</p>}
           <div ref={endRef} />
         </section>
 
@@ -501,17 +506,42 @@ function ThreadPage() {
             </div>
           )}
           <div className="flex items-end gap-2">
-            <button onClick={() => imgRef.current?.click()} aria-label="Add photo or video" className="p-2 text-muted-foreground hover:text-foreground">
+            <button
+              onClick={() => imgRef.current?.click()}
+              aria-label="Add photo or video"
+              className="p-2 text-muted-foreground hover:text-foreground"
+            >
               <ImageIcon size={22} />
             </button>
-            <button onClick={() => fileRef.current?.click()} aria-label="Attach file" className="p-2 text-muted-foreground hover:text-foreground">
+            <button
+              onClick={() => fileRef.current?.click()}
+              aria-label="Attach file"
+              className="p-2 text-muted-foreground hover:text-foreground"
+            >
               <Paperclip size={22} />
             </button>
-            <input ref={imgRef} type="file" accept="image/*,video/*" hidden onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ""; }} />
-            <input ref={fileRef} type="file" hidden onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ""; }} />
+            <input
+              ref={imgRef}
+              type="file"
+              accept="image/*,video/*"
+              hidden
+              onChange={(e) => {
+                pick(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
+            <input
+              ref={fileRef}
+              type="file"
+              hidden
+              onChange={(e) => {
+                pick(e.target.files?.[0]);
+                e.target.value = "";
+              }}
+            />
             <textarea
               value={body}
-              onChange={(e) => onType(e.target.value)}
+              onChange={(e) => setBody(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();

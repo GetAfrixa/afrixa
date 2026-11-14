@@ -15,12 +15,12 @@ import { Button } from "@/components/ui/button";
 export const Route = createFileRoute("/_authenticated/notifications")({
   head: () => ({
     meta: [
-      { title: "Notifications — Afrixa" },
+      { title: "Notifications - Afrixa" },
       {
         name: "description",
         content: "Proposal, message and escrow updates across your Afrixa work in one activity feed.",
       },
-      { property: "og:title", content: "Notifications — Afrixa" },
+      { property: "og:title", content: "Notifications - Afrixa" },
       { property: "og:description", content: "Stay on top of Afrixa hiring, messages and escrow events." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
@@ -74,7 +74,7 @@ function NotificationsPage() {
         }
       />
 
-      <div className="flex gap-2 overflow-x-auto px-4 pb-3">
+      <div className="mx-auto flex w-full max-w-[840px] gap-2 overflow-x-auto px-4 pb-3 md:flex-wrap md:overflow-visible md:px-8">
         {FILTERS.map((option) => (
           <button
             key={option.id}
@@ -89,7 +89,7 @@ function NotificationsPage() {
         ))}
       </div>
 
-      <main className="space-y-3 px-4">
+      <main className="mx-auto w-full max-w-[840px] px-4 py-4 pb-8 md:px-8 md:py-6 space-y-3">
         {isLoading ? (
           <p className="text-sm text-muted-foreground">Loading activity…</p>
         ) : visible.length ? (

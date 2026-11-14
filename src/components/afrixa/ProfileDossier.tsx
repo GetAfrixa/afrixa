@@ -67,7 +67,7 @@ export function ProfileDossierView({ dossier }: { dossier: Dossier }) {
               {job.location ? ` · ${job.location}` : ""}
             </p>
             <p className="mt-0.5 text-[11px] text-muted-foreground">
-              {monthYear(job.start_date)} — {job.is_current ? "Present" : monthYear(job.end_date)}
+              {monthYear(job.start_date)} - {job.is_current ? "Present" : monthYear(job.end_date)}
             </p>
             {job.summary ? <p className="mt-1 text-xs text-muted-foreground">{job.summary}</p> : null}
           </article>
@@ -88,7 +88,7 @@ export function ProfileDossierView({ dossier }: { dossier: Dossier }) {
             </p>
             {entry.start_year || entry.end_year ? (
               <p className="mt-0.5 text-[11px] text-muted-foreground">
-                {entry.start_year ?? "—"} — {entry.end_year ?? "Present"}
+                {entry.start_year ?? "-"} - {entry.end_year ?? "Present"}
               </p>
             ) : null}
           </article>
