@@ -228,7 +228,7 @@ export function AppShell({
       {nav ? <DesktopNav /> : null}
       <div className={cn("min-h-dvh", nav && "md:pl-[84px] lg:pl-[272px]")}>
         <div className={cn(nav && "pb-24 md:pb-10", className)}>
-          <div className="mx-auto min-h-dvh w-full max-w-[1180px]">{children}</div>
+          <div className="mx-auto min-h-dvh w-full max-w-[1180px] border-x border-border/70">{children}</div>
         </div>
       </div>
       {nav ? <BottomNav /> : null}
